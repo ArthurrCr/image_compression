@@ -17,6 +17,44 @@ def _img_to_float01(img):
     return img.astype(np.float32), 1.0, img.dtype
 
 
+def _get_optimal_idx_dtype(K):
+    """
+    Retorna o menor dtype possível para armazenar índices de 0 a K-1.
+    
+    K <= 256: uint8 (1 byte)
+    K <= 65536: uint16 (2 bytes)
+    Maior: uint32 (4 bytes)
+    """
+    if K <= 256:
+        return np.uint8
+    elif K <= 65536:
+        return np.uint16
+    else:
+        return np.uint32
+
+
+def _compute_compressed_size(centroids, idx, K):
+    """
+    Calcula o tamanho REAL da compressão usando o tipo de dado ótimo.
+    
+    Retorna:
+        compressed_size_bytes: tamanho em bytes
+        idx_dtype: dtype ótimo para os índices
+    """
+    # Tipo ótimo para índices
+    idx_dtype = _get_optimal_idx_dtype(K)
+    
+    # Tamanho dos centróides (float32)
+    centroids_bytes = K * 3 * 4  # K × RGB × 4 bytes (float32)
+    
+    # Tamanho dos índices com tipo ótimo
+    idx_bytes = idx.size * np.dtype(idx_dtype).itemsize
+    
+    total_bytes = centroids_bytes + idx_bytes
+    
+    return total_bytes, idx_dtype
+
+
 def _reconstruct_image(centroids, idx, original_shape, original_dtype):
     """
     Reconstrói imagem a partir de centróides/índices (centroids em [0,1]) e volta ao dtype original.
@@ -47,13 +85,7 @@ def _compute_sse_mse_psnr(X_float01, centroids, idx, max_i):
 def plot_comparison_with_stats(original_img, X_recovered, centroids, idx, K, 
                                distance_metric='euclidean', color_space='rgb'):
     """
-    Mostra (lado a lado) original vs comprimida e inclui:
-      - Tamanho original e "comprimido" (centróides + índices)
-      - Nº de cores únicas em cada imagem
-      - Percentual de redução
-      - Métrica de distância usada
-      - Espaço de cor usado
-    Retorna o objeto Figure para permitir salvar se necessário.
+    Mostra (lado a lado) original vs comprimida com estatísticas corretas.
     """
     H, W, C = original_img.shape
     assert C == 3, "Esperada imagem RGB (H, W, 3)."
@@ -68,30 +100,39 @@ def plot_comparison_with_stats(original_img, X_recovered, centroids, idx, K,
     unique_colors_original   = np.unique(orig_u8.reshape(-1, C), axis=0).shape[0]
     unique_colors_compressed = np.unique(rec_u8.reshape(-1, C), axis=0).shape[0]
 
-    original_size_mb   = original_img.nbytes / (1024 * 1024)
-    compressed_size_mb = (centroids.nbytes + idx.nbytes) / (1024 * 1024)
+    # Tamanho REAL da imagem original (como seria salva em disco)
+    # Para PNG/JPEG: uint8 com 3 canais
+    original_size_bytes = H * W * 3  # uint8
+    original_size_mb = original_size_bytes / (1024 * 1024)
+    
+    # Tamanho REAL da compressão (centróides float32 + índices otimizados)
+    compressed_size_bytes, idx_dtype = _compute_compressed_size(centroids, idx, K)
+    compressed_size_mb = compressed_size_bytes / (1024 * 1024)
+    
     reducao_pct = (1 - compressed_size_mb / original_size_mb) * 100 if original_size_mb > 0 else 0.0
+    compression_ratio = original_size_mb / compressed_size_mb if compressed_size_mb > 0 else float('inf')
 
     fig, ax = plt.subplots(1, 2, figsize=(16, 16))
     plt.axis('off')
 
     ax[0].imshow(original_img)
     ax[0].set_title(
-        f'Original\nTamanho: {original_size_mb:.2f} MB\nCores únicas: {unique_colors_original:,}',
+        f'Original\nTamanho: {original_size_mb:.2f} MB ({H}×{W}×3 uint8)\nCores únicas: {unique_colors_original:,}',
         fontsize=14
     )
     ax[0].set_axis_off()
 
     ax[1].imshow(X_recovered)
     ax[1].set_title(
-        f'Comprimida com {K} cores\nTamanho: {compressed_size_mb:.2f} MB\nCores únicas: {unique_colors_compressed:,}\nMétrica: {distance_metric} | Espaço: {color_space.upper()}',
+        f'Comprimida com {K} cores\nTamanho: {compressed_size_mb:.2f} MB ({K}×3 float32 + {H*W} {idx_dtype.__name__})\nCores únicas: {unique_colors_compressed:,}\nMétrica: {distance_metric} | Espaço: {color_space.upper()}',
         fontsize=14
     )
     ax[1].set_axis_off()
 
     plt.suptitle(
         f'Redução de {original_size_mb:.2f} MB para {compressed_size_mb:.2f} MB '
-        f'({reducao_pct:.1f}% menor)\n'
+        f'({reducao_pct:.1f}% {"menor" if reducao_pct > 0 else "MAIOR"})\n'
+        f'Taxa de compressão: {compression_ratio:.2f}x | '
         f'Cores reduzidas de {unique_colors_original:,} para {unique_colors_compressed:,}',
         fontsize=16, y=0.98
     )
@@ -107,16 +148,6 @@ def run_kmeans_single(X_float01, K, max_iters=10, seed=0, n_init=1,
     """
     Roda K-Means para um K com n_init inicializações.
     Retorna os melhores centroids/idx por SSE.
-    
-    Parâmetros:
-        X_float01: dados em [0,1]
-        K: número de clusters
-        max_iters: iterações máximas
-        seed: seed para reprodutibilidade
-        n_init: número de inicializações
-        distance_metric: métrica de distância
-        color_space: 'rgb', 'hsv' ou 'hls'
-        use_gpu: usar GPU se disponível
     """
     best = None
     for rep in range(n_init):
@@ -143,22 +174,7 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
                     save_plots=False, distance_metric='euclidean', 
                     color_space='rgb', use_gpu=True):
     """
-    Executa o pipeline para vários K e retorna uma lista de métricas por K.
-    
-    Parâmetros:
-        original_img: imagem original
-        K_list: lista de valores de K para testar
-        max_iters: número máximo de iterações
-        seed: seed para reprodutibilidade
-        n_init: número de inicializações por K
-        save_dir: diretório para salvar resultados
-        plot_each: plotar comparação para cada K
-        plot_rgb: plotar no espaço RGB 3D
-        show_palette: mostrar paleta de cores
-        save_plots: salvar plots em arquivo
-        distance_metric: 'euclidean', 'manhattan', 'cosine', 'chebyshev', 'minkowski'
-        color_space: 'rgb', 'hsv' ou 'hls'
-        use_gpu: usar GPU se disponível
+    Executa o pipeline para vários K com cálculo CORRETO de tamanhos.
     """
     # Validações
     if isinstance(distance_metric, str) and distance_metric not in DISTANCE_FUNCTIONS:
@@ -190,6 +206,7 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
     print(f"\n{'='*70}")
     print(f"EXECUTANDO K-MEANS")
     print(f"{'='*70}")
+    print(f"Resolução:            {H}×{W} ({H*W:,} pixels)")
     print(f"Métrica de distância: {distance_metric.upper()}")
     print(f"Espaço de cor:        {color_space.upper()}")
     print(f"Device:               {device_info}")
@@ -210,13 +227,16 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
         )
         elapsed = time.time() - t0
 
+        # Converter centróides para float32 (economizar espaço)
+        centroids = centroids.astype(np.float32)
+
         # Métricas principais
         _, mse, psnr = _compute_sse_mse_psnr(X, centroids, idx, max_i)
 
         # Reconstrução
         rec_img = _reconstruct_image(centroids, idx, original_img.shape, original_dtype)
 
-        # Cores únicas e tamanhos
+        # Cores únicas
         def to_uint8(arr):
             if arr.dtype == np.uint8:
                 return arr
@@ -226,8 +246,14 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
         rec_u8  = to_uint8(rec_img)
         unique_colors_original   = np.unique(orig_u8.reshape(-1, C), axis=0).shape[0]
         unique_colors_compressed = np.unique(rec_u8.reshape(-1, C), axis=0).shape[0]
-        original_mb   = original_img.nbytes / (1024 * 1024)
-        compressed_mb = (centroids.nbytes + idx.nbytes) / (1024 * 1024)
+        
+        # Tamanhos CORRETOS
+        original_size_bytes = H * W * 3  # uint8
+        original_mb = original_size_bytes / (1024 * 1024)
+        
+        compressed_size_bytes, idx_dtype = _compute_compressed_size(centroids, idx, K)
+        compressed_mb = compressed_size_bytes / (1024 * 1024)
+        
         ratio = (original_mb / compressed_mb) if compressed_mb > 0 else np.inf
 
         # Plot ao final de cada K
@@ -269,6 +295,7 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
             "tamanho_original_MB": float(original_mb),
             "tamanho_comprimido_MB": float(compressed_mb),
             "fator_compactacao": float(ratio),
+            "idx_dtype": str(idx_dtype.__name__),
             "arquivo_saida": out_path
         })
         
@@ -276,6 +303,8 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
         print(f"  ✅ Concluído em {elapsed:.2f}s")
         print(f"     PSNR: {psnr:.2f} dB")
         print(f"     Cores: {unique_colors_original:,} → {unique_colors_compressed:,}")
+        print(f"     Tamanho: {original_mb:.2f} MB → {compressed_mb:.2f} MB ({ratio:.2f}x)")
+        print(f"     Índices: {idx_dtype.__name__} ({np.dtype(idx_dtype).itemsize} byte(s) por pixel)")
 
     print(f"\n{'='*70}")
     print(f"EXPERIMENTO CONCLUÍDO!")

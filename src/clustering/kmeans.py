@@ -17,22 +17,65 @@ def get_array_module(use_gpu=True):
     return np
 
 
+def to_device(array, use_gpu=True):
+    """Converte array para o device correto (CPU ou GPU)"""
+    xp = get_array_module(use_gpu)
+    
+    if use_gpu and CUPY_AVAILABLE:
+        # Converter para GPU
+        if not isinstance(array, cp.ndarray):
+            return cp.asarray(array)
+        return array
+    else:
+        # Converter para CPU
+        if CUPY_AVAILABLE and isinstance(array, cp.ndarray):
+            return cp.asnumpy(array)
+        return np.asarray(array)
+
+
+def to_cpu(array):
+    """Força conversão para CPU (NumPy)"""
+    if CUPY_AVAILABLE and isinstance(array, cp.ndarray):
+        return cp.asnumpy(array)
+    return np.asarray(array)
+
+
 # ========== FUNÇÕES DE DISTÂNCIA COM SUPORTE GPU ==========
 
 def euclidean_distance(X, centroids, xp=np):
     """Distância Euclidiana (GPU-ready)"""
-    # X: (m, n), centroids: (K, n)
-    # Retorna: (m, K)
+    # Garantir que ambos estão no mesmo device
+    if xp == cp and CUPY_AVAILABLE:
+        X = cp.asarray(X)
+        centroids = cp.asarray(centroids)
+    else:
+        X = np.asarray(X)
+        centroids = np.asarray(centroids)
+    
     return xp.linalg.norm(X[:, xp.newaxis] - centroids, axis=2)
 
 
 def manhattan_distance(X, centroids, xp=np):
     """Distância Manhattan (GPU-ready)"""
+    if xp == cp and CUPY_AVAILABLE:
+        X = cp.asarray(X)
+        centroids = cp.asarray(centroids)
+    else:
+        X = np.asarray(X)
+        centroids = np.asarray(centroids)
+    
     return xp.sum(xp.abs(X[:, xp.newaxis] - centroids), axis=2)
 
 
 def cosine_distance(X, centroids, xp=np):
     """Distância baseada em similaridade de cosseno (GPU-ready)"""
+    if xp == cp and CUPY_AVAILABLE:
+        X = cp.asarray(X)
+        centroids = cp.asarray(centroids)
+    else:
+        X = np.asarray(X)
+        centroids = np.asarray(centroids)
+    
     X_norm = X / (xp.linalg.norm(X, axis=1, keepdims=True) + 1e-10)
     C_norm = centroids / (xp.linalg.norm(centroids, axis=1, keepdims=True) + 1e-10)
     similarity = xp.dot(X_norm, C_norm.T)
@@ -41,11 +84,25 @@ def cosine_distance(X, centroids, xp=np):
 
 def chebyshev_distance(X, centroids, xp=np):
     """Distância Chebyshev (GPU-ready)"""
+    if xp == cp and CUPY_AVAILABLE:
+        X = cp.asarray(X)
+        centroids = cp.asarray(centroids)
+    else:
+        X = np.asarray(X)
+        centroids = np.asarray(centroids)
+    
     return xp.max(xp.abs(X[:, xp.newaxis] - centroids), axis=2)
 
 
 def minkowski_distance(X, centroids, p=3, xp=np):
     """Distância Minkowski (GPU-ready)"""
+    if xp == cp and CUPY_AVAILABLE:
+        X = cp.asarray(X)
+        centroids = cp.asarray(centroids)
+    else:
+        X = np.asarray(X)
+        centroids = np.asarray(centroids)
+    
     return xp.sum(xp.abs(X[:, xp.newaxis] - centroids) ** p, axis=2) ** (1/p)
 
 
@@ -61,44 +118,32 @@ DISTANCE_FUNCTIONS = {
 # ========== CONVERSÕES DE ESPAÇO DE COR ==========
 
 def rgb_to_hsv_vectorized(rgb_array):
-    """Converte RGB para HSV (mantém na CPU por limitação do matplotlib)"""
-    # Matplotlib não suporta GPU, então converter temporariamente
-    is_gpu = False
-    if CUPY_AVAILABLE and isinstance(rgb_array, cp.ndarray):
-        rgb_array = cp.asnumpy(rgb_array)
-        is_gpu = True
+    """Converte RGB para HSV (sempre na CPU devido ao matplotlib)"""
+    # Converter para CPU se estiver na GPU
+    rgb_cpu = to_cpu(rgb_array)
     
-    if rgb_array.ndim == 2:
-        h, w = 1, rgb_array.shape[0]
-        rgb_img = rgb_array.reshape(h, w, 3)
+    if rgb_cpu.ndim == 2:
+        h, w = 1, rgb_cpu.shape[0]
+        rgb_img = rgb_cpu.reshape(h, w, 3)
         hsv_img = mcolors.rgb_to_hsv(rgb_img)
         result = hsv_img.reshape(-1, 3)
     else:
-        result = mcolors.rgb_to_hsv(rgb_array)
-    
-    if is_gpu:
-        result = cp.asarray(result)
+        result = mcolors.rgb_to_hsv(rgb_cpu)
     
     return result
 
 
 def hsv_to_rgb_vectorized(hsv_array):
-    """Converte HSV para RGB (mantém na CPU por limitação do matplotlib)"""
-    is_gpu = False
-    if CUPY_AVAILABLE and isinstance(hsv_array, cp.ndarray):
-        hsv_array = cp.asnumpy(hsv_array)
-        is_gpu = True
+    """Converte HSV para RGB (sempre na CPU devido ao matplotlib)"""
+    hsv_cpu = to_cpu(hsv_array)
     
-    if hsv_array.ndim == 2:
-        h, w = 1, hsv_array.shape[0]
-        hsv_img = hsv_array.reshape(h, w, 3)
+    if hsv_cpu.ndim == 2:
+        h, w = 1, hsv_cpu.shape[0]
+        hsv_img = hsv_cpu.reshape(h, w, 3)
         rgb_img = mcolors.hsv_to_rgb(hsv_img)
         result = rgb_img.reshape(-1, 3)
     else:
-        result = mcolors.hsv_to_rgb(hsv_array)
-    
-    if is_gpu:
-        result = cp.asarray(result)
+        result = mcolors.hsv_to_rgb(hsv_cpu)
     
     return result
 
@@ -106,10 +151,12 @@ def hsv_to_rgb_vectorized(hsv_array):
 # ========== K-MEANS COM GPU ==========
 
 def find_closest_centroids(X, centroids, distance_metric='euclidean', use_gpu=True):
-    """
-    Encontra o centróide mais próximo (GPU-ready).
-    """
+    """Encontra o centróide mais próximo (GPU-ready)."""
     xp = get_array_module(use_gpu)
+    
+    # CRÍTICO: Converter ambos para o mesmo device
+    X = to_device(X, use_gpu)
+    centroids = to_device(centroids, use_gpu)
     
     if isinstance(distance_metric, str):
         if distance_metric not in DISTANCE_FUNCTIONS:
@@ -133,13 +180,18 @@ def compute_centroids(X, idx, K, use_gpu=True):
     """Calcula os novos centróides (GPU-ready)."""
     xp = get_array_module(use_gpu)
     
+    # Converter para o device correto
+    X = to_device(X, use_gpu)
+    idx = to_device(idx, use_gpu)
+    
     m, n = X.shape
     centroids = xp.zeros((K, n), dtype=X.dtype)
 
     for i in range(K):
         mask = (idx == i)
         points_assigned = X[mask]
-        if xp.sum(mask) > 0:
+        count = xp.sum(mask)
+        if count > 0:
             centroids[i] = xp.mean(points_assigned, axis=0)
     
     return centroids
@@ -149,8 +201,11 @@ def kMeans_init_centroids(X, K, use_gpu=True):
     """Inicializa os centróides (GPU-ready)."""
     xp = get_array_module(use_gpu)
     
-    if CUPY_AVAILABLE and isinstance(X, cp.ndarray):
-        # Usar random do CuPy
+    # Converter X para o device correto
+    X = to_device(X, use_gpu)
+    
+    # Gerar índices aleatórios
+    if use_gpu and CUPY_AVAILABLE:
         randidx = cp.random.permutation(X.shape[0])
     else:
         randidx = np.random.permutation(X.shape[0])
@@ -162,12 +217,7 @@ def kMeans_init_centroids(X, K, use_gpu=True):
 def run_kMeans(X, initial_centroids, max_iters=10, plot_progress=False, 
                plot_function=None, distance_metric='euclidean', 
                color_space='rgb', use_gpu=True):
-    """
-    Executa o algoritmo K-Means (GPU-ready).
-    
-    Parâmetros:
-        use_gpu: bool - Se True, tenta usar GPU. Se False, usa CPU.
-    """
+    """Executa o algoritmo K-Means (GPU-ready)."""
     xp = get_array_module(use_gpu)
     
     # Mensagem sobre GPU
@@ -179,23 +229,21 @@ def run_kMeans(X, initial_centroids, max_iters=10, plot_progress=False,
         else:
             print(f"💻 Executando K-Means na CPU")
     
-    # Converter X para GPU se necessário
-    if use_gpu and CUPY_AVAILABLE and not isinstance(X, cp.ndarray):
-        X = cp.asarray(X)
-    elif not use_gpu and CUPY_AVAILABLE and isinstance(X, cp.ndarray):
-        X = cp.asnumpy(X)
+    # Converter para o device correto ANTES de qualquer operação
+    X = to_device(X, use_gpu)
+    initial_centroids = to_device(initial_centroids, use_gpu)
     
-    # Converter para espaço de cor
+    # Converter para espaço de cor (sempre na CPU)
     if color_space == 'hsv':
         print(f"🎨 Convertendo RGB → HSV")
         X_transformed = rgb_to_hsv_vectorized(X)
         initial_centroids_transformed = rgb_to_hsv_vectorized(initial_centroids)
+        # Retornar para GPU se necessário
+        X_transformed = to_device(X_transformed, use_gpu)
+        initial_centroids_transformed = to_device(initial_centroids_transformed, use_gpu)
     elif color_space == 'hls':
-        print(f"🎨 Convertendo RGB → HLS")
-        # HLS não implementado para GPU ainda
-        if use_gpu and CUPY_AVAILABLE:
-            X = cp.asnumpy(X)
-        X_transformed = X  # Placeholder
+        print(f"⚠️  HLS não suportado ainda, usando RGB")
+        X_transformed = X
         initial_centroids_transformed = initial_centroids
     else:
         X_transformed = X
@@ -216,16 +264,10 @@ def run_kMeans(X, initial_centroids, max_iters=10, plot_progress=False,
         
         if plot_progress and plot_function is not None:
             # Para plot, precisa estar na CPU
-            if CUPY_AVAILABLE and isinstance(X_transformed, cp.ndarray):
-                X_plot = cp.asnumpy(X_transformed)
-                centroids_plot = cp.asnumpy(centroids)
-                prev_plot = cp.asnumpy(previous_centroids)
-                idx_plot = cp.asnumpy(idx)
-            else:
-                X_plot = X_transformed
-                centroids_plot = centroids
-                prev_plot = previous_centroids
-                idx_plot = idx
+            X_plot = to_cpu(X_transformed)
+            centroids_plot = to_cpu(centroids)
+            prev_plot = to_cpu(previous_centroids)
+            idx_plot = to_cpu(idx)
             
             plot_function(X_plot, centroids_plot, prev_plot, idx_plot, K, i)
             previous_centroids = centroids.copy()
@@ -235,13 +277,12 @@ def run_kMeans(X, initial_centroids, max_iters=10, plot_progress=False,
     # Converter de volta para RGB se necessário
     if color_space == 'hsv':
         centroids_rgb = hsv_to_rgb_vectorized(centroids)
+        centroids_rgb = to_device(centroids_rgb, use_gpu)
     else:
         centroids_rgb = centroids
     
     # Retornar sempre na CPU para compatibilidade
-    if CUPY_AVAILABLE and isinstance(centroids_rgb, cp.ndarray):
-        centroids_rgb = cp.asnumpy(centroids_rgb)
-    if CUPY_AVAILABLE and isinstance(idx, cp.ndarray):
-        idx = cp.asnumpy(idx)
+    centroids_rgb = to_cpu(centroids_rgb)
+    idx = to_cpu(idx)
     
     return centroids_rgb, idx
