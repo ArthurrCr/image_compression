@@ -44,13 +44,15 @@ def _compute_sse_mse_psnr(X_float01, centroids, idx, max_i):
     return sse, mse, psnr
 
 
-def plot_comparison_with_stats(original_img, X_recovered, centroids, idx, K, distance_metric='euclidean'):
+def plot_comparison_with_stats(original_img, X_recovered, centroids, idx, K, 
+                               distance_metric='euclidean', color_space='rgb'):
     """
     Mostra (lado a lado) original vs comprimida e inclui:
       - Tamanho original e "comprimido" (centróides + índices)
       - Nº de cores únicas em cada imagem
       - Percentual de redução
       - Métrica de distância usada
+      - Espaço de cor usado
     Retorna o objeto Figure para permitir salvar se necessário.
     """
     H, W, C = original_img.shape
@@ -82,7 +84,7 @@ def plot_comparison_with_stats(original_img, X_recovered, centroids, idx, K, dis
 
     ax[1].imshow(X_recovered)
     ax[1].set_title(
-        f'Comprimida com {K} cores\nTamanho: {compressed_size_mb:.2f} MB\nCores únicas: {unique_colors_compressed:,}\nMétrica: {distance_metric}',
+        f'Comprimida com {K} cores\nTamanho: {compressed_size_mb:.2f} MB\nCores únicas: {unique_colors_compressed:,}\nMétrica: {distance_metric} | Espaço: {color_space.upper()}',
         fontsize=14
     )
     ax[1].set_axis_off()
@@ -100,17 +102,35 @@ def plot_comparison_with_stats(original_img, X_recovered, centroids, idx, K, dis
 # -------------------------------
 # Núcleo do experimento
 # -------------------------------
-def run_kmeans_single(X_float01, K, max_iters=10, seed=0, n_init=1, distance_metric='euclidean'):
+def run_kmeans_single(X_float01, K, max_iters=10, seed=0, n_init=1, 
+                      distance_metric='euclidean', color_space='rgb', use_gpu=True):
     """
     Roda K-Means para um K com n_init inicializações.
     Retorna os melhores centroids/idx por SSE.
+    
+    Parâmetros:
+        X_float01: dados em [0,1]
+        K: número de clusters
+        max_iters: iterações máximas
+        seed: seed para reprodutibilidade
+        n_init: número de inicializações
+        distance_metric: métrica de distância
+        color_space: 'rgb', 'hsv' ou 'hls'
+        use_gpu: usar GPU se disponível
     """
     best = None
     for rep in range(n_init):
         if seed is not None:
             np.random.seed(seed + rep)
-        init = kMeans_init_centroids(X_float01, K)
-        centroids, idx = run_kMeans(X_float01, init, max_iters=max_iters, distance_metric=distance_metric)
+        init = kMeans_init_centroids(X_float01, K, use_gpu=use_gpu)
+        centroids, idx = run_kMeans(
+            X_float01, 
+            init, 
+            max_iters=max_iters, 
+            distance_metric=distance_metric,
+            color_space=color_space,
+            use_gpu=use_gpu
+        )
         diffs = X_float01 - centroids[idx]
         sse = float(np.sum(diffs * diffs))
         if (best is None) or (sse < best["sse"]):
@@ -120,16 +140,42 @@ def run_kmeans_single(X_float01, K, max_iters=10, seed=0, n_init=1, distance_met
 
 def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
                     save_dir=None, plot_each=True, plot_rgb=False, show_palette=False, 
-                    save_plots=False, distance_metric='euclidean'):
+                    save_plots=False, distance_metric='euclidean', 
+                    color_space='rgb', use_gpu=True):
     """
     Executa o pipeline para vários K e retorna uma lista de métricas por K.
     
-    Parâmetros adicionais:
+    Parâmetros:
+        original_img: imagem original
+        K_list: lista de valores de K para testar
+        max_iters: número máximo de iterações
+        seed: seed para reprodutibilidade
+        n_init: número de inicializações por K
+        save_dir: diretório para salvar resultados
+        plot_each: plotar comparação para cada K
+        plot_rgb: plotar no espaço RGB 3D
+        show_palette: mostrar paleta de cores
+        save_plots: salvar plots em arquivo
         distance_metric: 'euclidean', 'manhattan', 'cosine', 'chebyshev', 'minkowski'
+        color_space: 'rgb', 'hsv' ou 'hls'
+        use_gpu: usar GPU se disponível
     """
-    # Validar métrica
+    # Validações
     if isinstance(distance_metric, str) and distance_metric not in DISTANCE_FUNCTIONS:
         raise ValueError(f"Métrica '{distance_metric}' inválida. Use: {list(DISTANCE_FUNCTIONS.keys())}")
+    
+    if color_space not in ['rgb', 'hsv', 'hls']:
+        raise ValueError(f"color_space deve ser 'rgb', 'hsv' ou 'hls', não '{color_space}'")
+    
+    # Verificar GPU
+    device_info = "CPU"
+    if use_gpu:
+        try:
+            import cupy as cp
+            device = cp.cuda.Device()
+            device_info = f"GPU (Memória: {device.mem_info[1] / 1e9:.2f} GB)"
+        except:
+            device_info = "CPU (GPU não disponível)"
     
     # Preparação
     img01, max_i, original_dtype = _img_to_float01(original_img)
@@ -142,14 +188,26 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
         os.makedirs(save_dir, exist_ok=True)
 
     print(f"\n{'='*70}")
-    print(f"EXECUTANDO K-MEANS COM MÉTRICA: {distance_metric.upper()}")
+    print(f"EXECUTANDO K-MEANS")
+    print(f"{'='*70}")
+    print(f"Métrica de distância: {distance_metric.upper()}")
+    print(f"Espaço de cor:        {color_space.upper()}")
+    print(f"Device:               {device_info}")
+    print(f"Valores de K:         {K_list}")
     print(f"{'='*70}\n")
 
     for K in K_list:
         print(f"\n--- Processando K={K} ---")
         t0 = time.time()
-        centroids, idx, sse = run_kmeans_single(X, K, max_iters=max_iters, seed=seed, 
-                                                 n_init=n_init, distance_metric=distance_metric)
+        centroids, idx, sse = run_kmeans_single(
+            X, K, 
+            max_iters=max_iters, 
+            seed=seed, 
+            n_init=n_init, 
+            distance_metric=distance_metric,
+            color_space=color_space,
+            use_gpu=use_gpu
+        )
         elapsed = time.time() - t0
 
         # Métricas principais
@@ -174,10 +232,11 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
 
         # Plot ao final de cada K
         if plot_each:
-            fig = plot_comparison_with_stats(original_img, rec_img, centroids, idx, K, distance_metric)
+            fig = plot_comparison_with_stats(original_img, rec_img, centroids, idx, K, 
+                                            distance_metric, color_space)
             plt.show()
             if save_dir and save_plots:
-                fig_path = os.path.join(save_dir, f"plot_k{K}_{distance_metric}.png")
+                fig_path = os.path.join(save_dir, f"plot_k{K}_{distance_metric}_{color_space}.png")
                 fig.savefig(fig_path, bbox_inches="tight")
                 plt.close(fig)
 
@@ -190,13 +249,15 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
         # Salvar imagem reconstruída
         out_path = None
         if save_dir:
-            out_path = os.path.join(save_dir, f"image_k{K}_{distance_metric}.png")
+            out_path = os.path.join(save_dir, f"image_k{K}_{distance_metric}_{color_space}.png")
             plt.imsave(out_path, rec_img)
 
         # Registrar resultados
         results.append({
             "K": int(K),
             "distance_metric": str(distance_metric),
+            "color_space": str(color_space),
+            "use_gpu": bool(use_gpu),
             "max_iters": int(max_iters),
             "n_init": int(n_init),
             "tempo_s": round(float(elapsed), 4),
@@ -210,5 +271,14 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
             "fator_compactacao": float(ratio),
             "arquivo_saida": out_path
         })
+        
+        # Mostrar resumo
+        print(f"  ✅ Concluído em {elapsed:.2f}s")
+        print(f"     PSNR: {psnr:.2f} dB")
+        print(f"     Cores: {unique_colors_original:,} → {unique_colors_compressed:,}")
+
+    print(f"\n{'='*70}")
+    print(f"EXPERIMENTO CONCLUÍDO!")
+    print(f"{'='*70}\n")
 
     return results
