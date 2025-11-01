@@ -124,7 +124,7 @@ def plot_comparison_with_stats(original_img, X_recovered, centroids, idx, K,
 
     ax[1].imshow(X_recovered)
     ax[1].set_title(
-        f'Comprimida com {K} cores\nTamanho: {compressed_size_mb:.2f} MB ({K}×3 float32 + {H*W} {idx_dtype.__name__})\nCores únicas: {unique_colors_compressed:,}\nMétrica: {distance_metric} | Espaço: {color_space.upper()}',
+        f'Comprimida com {K} cores\nTamanho: {compressed_size_mb:.2f} MB \nCores únicas: {unique_colors_compressed:,}\nMétrica: {distance_metric} | Espaço: {color_space.upper()}',
         fontsize=14
     )
     ax[1].set_axis_off()
