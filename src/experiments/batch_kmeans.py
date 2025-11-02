@@ -2,6 +2,7 @@ import os
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+import gc
 
 from src.clustering.kmeans import kMeans_init_centroids, run_kMeans, DISTANCE_FUNCTIONS
 from src.visualization.plot_3d import plot_kMeans_RGB, show_centroid_colors
@@ -10,6 +11,17 @@ from src.visualization.plot_3d import plot_kMeans_RGB, show_centroid_colors
 # -------------------------------
 # Utilitários
 # -------------------------------
+def clear_gpu_memory():
+    """Limpa a memória da GPU"""
+    try:
+        import cupy as cp
+        mempool = cp.get_default_memory_pool()
+        mempool.free_all_blocks()
+        gc.collect()
+    except:
+        pass
+
+
 def _img_to_float01(img):
     """Converte para float32 em [0,1] e retorna também o valor máximo original (1.0 ou 255.0) e o dtype."""
     if img.dtype == np.uint8:
@@ -174,7 +186,22 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
                     save_plots=False, distance_metric='euclidean', 
                     color_space='rgb', use_gpu=True):
     """
-    Executa o pipeline para vários K com cálculo CORRETO de tamanhos.
+    Executa o pipeline para vários K com cálculo CORRETO de tamanhos e gerenciamento de memória.
+    
+    Parâmetros:
+        original_img: imagem original
+        K_list: lista de valores de K para testar
+        max_iters: número máximo de iterações
+        seed: seed para reprodutibilidade
+        n_init: número de inicializações por K
+        save_dir: diretório para salvar resultados
+        plot_each: plotar comparação para cada K
+        plot_rgb: plotar no espaço RGB 3D
+        show_palette: mostrar paleta de cores
+        save_plots: salvar plots em arquivo
+        distance_metric: 'euclidean', 'manhattan', 'cosine', 'chebyshev', 'minkowski'
+        color_space: 'rgb', 'hsv' ou 'hls'
+        use_gpu: usar GPU se disponível
     """
     # Validações
     if isinstance(distance_metric, str) and distance_metric not in DISTANCE_FUNCTIONS:
@@ -185,13 +212,16 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
     
     # Verificar GPU
     device_info = "CPU"
+    gpu_memory_available = 0
     if use_gpu:
         try:
             import cupy as cp
             device = cp.cuda.Device()
-            device_info = f"GPU (Memória: {device.mem_info[1] / 1e9:.2f} GB)"
+            gpu_memory_available = device.mem_info[1] / 1e9
+            device_info = f"GPU (Memória: {gpu_memory_available:.2f} GB)"
         except:
             device_info = "CPU (GPU não disponível)"
+            use_gpu = False
     
     # Preparação
     img01, max_i, original_dtype = _img_to_float01(original_img)
@@ -215,16 +245,48 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
 
     for K in K_list:
         print(f"\n--- Processando K={K} ---")
+        
+        # 🧹 Limpar memória GPU ANTES de cada K
+        if use_gpu:
+            clear_gpu_memory()
+            try:
+                import cupy as cp
+                mempool = cp.get_default_memory_pool()
+                free_mem = mempool.n_free_blocks()
+                print(f"🧹 Memória GPU limpa ({free_mem} blocos livres)")
+            except:
+                pass
+        
         t0 = time.time()
-        centroids, idx, sse = run_kmeans_single(
-            X, K, 
-            max_iters=max_iters, 
-            seed=seed, 
-            n_init=n_init, 
-            distance_metric=distance_metric,
-            color_space=color_space,
-            use_gpu=use_gpu
-        )
+        
+        try:
+            centroids, idx, sse = run_kmeans_single(
+                X, K, 
+                max_iters=max_iters, 
+                seed=seed, 
+                n_init=n_init, 
+                distance_metric=distance_metric,
+                color_space=color_space,
+                use_gpu=use_gpu
+            )
+        except Exception as e:
+            print(f"❌ Erro ao processar K={K}: {e}")
+            if use_gpu and "memory" in str(e).lower():
+                print(f"⚠️  Erro de memória GPU! Tentando com CPU...")
+                # Limpar tudo e tentar na CPU
+                clear_gpu_memory()
+                centroids, idx, sse = run_kmeans_single(
+                    X, K, 
+                    max_iters=max_iters, 
+                    seed=seed, 
+                    n_init=n_init, 
+                    distance_metric=distance_metric,
+                    color_space=color_space,
+                    use_gpu=False  # Forçar CPU
+                )
+            else:
+                raise
+        
         elapsed = time.time() - t0
 
         # Converter centróides para float32 (economizar espaço)
@@ -305,6 +367,12 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
         print(f"     Cores: {unique_colors_original:,} → {unique_colors_compressed:,}")
         print(f"     Tamanho: {original_mb:.2f} MB → {compressed_mb:.2f} MB ({ratio:.2f}x)")
         print(f"     Índices: {idx_dtype.__name__} ({np.dtype(idx_dtype).itemsize} byte(s) por pixel)")
+        
+        # 🧹 Limpar memória GPU DEPOIS de cada K
+        if use_gpu:
+            clear_gpu_memory()
+            # Forçar garbage collection também na CPU
+            gc.collect()
 
     print(f"\n{'='*70}")
     print(f"EXPERIMENTO CONCLUÍDO!")
