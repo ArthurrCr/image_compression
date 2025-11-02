@@ -62,3 +62,227 @@ def show_centroid_colors(centroids):
 
     plt.suptitle("Cores dos centróides (paleta)", y=0.9, fontsize=10)
     plt.show()
+
+
+def print_compression_analysis(original_shape, centroids, idx, K):
+    """
+    Imprime análise DETALHADA da compressão mostrando por que
+    K=4 e K=128 têm o mesmo tamanho (ambos usam uint8).
+    
+    Parâmetros:
+        original_shape: (H, W, C) da imagem original
+        centroids: array de centróides
+        idx: array de índices
+        K: número de clusters
+    """
+    H, W, C = original_shape
+    n_pixels = H * W
+    
+    # Determinar dtype ótimo para índices
+    if K <= 256:
+        idx_dtype = np.uint8
+        idx_bytes_per_pixel = 1
+        uint_range = "0 a 255"
+    elif K <= 65536:
+        idx_dtype = np.uint16
+        idx_bytes_per_pixel = 2
+        uint_range = "0 a 65,535"
+    else:
+        idx_dtype = np.uint32
+        idx_bytes_per_pixel = 4
+        uint_range = "0 a 4,294,967,295"
+    
+    # Calcular tamanhos
+    # Original
+    original_bytes = n_pixels * 3 * 1  # RGB uint8
+    original_mb = original_bytes / (1024 * 1024)
+    
+    # Comprimida
+    centroids_bytes = K * 3 * 4  # float32
+    centroids_kb = centroids_bytes / 1024
+    centroids_mb = centroids_bytes / (1024 * 1024)
+    
+    indices_bytes = n_pixels * idx_bytes_per_pixel
+    indices_mb = indices_bytes / (1024 * 1024)
+    
+    compressed_bytes = centroids_bytes + indices_bytes
+    compressed_mb = compressed_bytes / (1024 * 1024)
+    
+    # Percentuais
+    pct_indices = (indices_bytes / compressed_bytes) * 100
+    pct_centroids = (centroids_bytes / compressed_bytes) * 100
+    
+    # Taxa de compressão
+    compression_ratio = original_mb / compressed_mb if compressed_mb > 0 else float('inf')
+    savings_pct = (1 - compressed_mb / original_mb) * 100
+    
+    # Imprimir análise
+    print(f"\n{'='*70}")
+    print(f"📊 ANÁLISE DETALHADA DA COMPRESSÃO (K={K})")
+    print(f"{'='*70}")
+    
+    print(f"\n📐 IMAGEM ORIGINAL:")
+    print(f"   • Resolução: {H} × {W} = {n_pixels:,} pixels")
+    print(f"   • Formato: RGB uint8 (3 canais)")
+    print(f"   • Bytes por pixel: 3 bytes (R + G + B)")
+    print(f"   • Tamanho total: {original_mb:.2f} MB ({original_bytes:,} bytes)")
+    
+    print(f"\n🗜️  IMAGEM COMPRIMIDA (K={K}):")
+    print(f"\n   📦 Centróides (paleta de cores):")
+    print(f"      ├─ Quantidade: {K} cores")
+    print(f"      ├─ Formato: RGB float32 (3 canais × 4 bytes = 12 bytes/cor)")
+    print(f"      ├─ Cálculo: {K} cores × 12 bytes = {centroids_bytes:,} bytes")
+    print(f"      ├─ Tamanho: {centroids_kb:.2f} KB ({centroids_mb:.4f} MB)")
+    print(f"      └─ Percentual: {pct_centroids:.3f}% do total comprimido")
+    
+    print(f"\n   🗺️  Índices (mapa de pixels → cores):")
+    print(f"      ├─ Tipo: {idx_dtype.__name__} ({idx_bytes_per_pixel} byte por pixel)")
+    print(f"      ├─ Range: 0 a {K-1} (cabe em {uint_range})")
+    print(f"      ├─ Cálculo: {n_pixels:,} pixels × {idx_bytes_per_pixel} byte = {indices_bytes:,} bytes")
+    print(f"      ├─ Tamanho: {indices_mb:.2f} MB")
+    print(f"      └─ Percentual: {pct_indices:.2f}% do total comprimido ⬅️ DOMINANTE!")
+    
+    print(f"\n   💾 Total comprimido: {compressed_mb:.2f} MB")
+    
+    print(f"\n📊 RESULTADO:")
+    print(f"   • Taxa de compressão: {compression_ratio:.2f}x")
+    print(f"   • {"Economia" if savings_pct > 0 else "Aumento"}: {abs(savings_pct):.1f}%")
+    print(f"   • Bytes economizados: {(original_bytes - compressed_bytes):,}")
+    print(f"   • Bytes/pixel original: 3.000")
+    print(f"   • Bytes/pixel comprimido: {(compressed_bytes/n_pixels):.3f}")
+    
+    print(f"\n💡 POR QUE {idx_dtype.__name__.upper()}?")
+    print(f"\n   Para representar índices de 0 a {K-1}, precisamos de:")
+    print(f"   ")
+    print(f"   • uint8:  0 a 255           (1 byte)   {'✅ USADO - Suficiente e eficiente!' if K <= 256 else '❌ Insuficiente'}")
+    print(f"   • uint16: 0 a 65,535        (2 bytes)  {'✅ USADO - Mínimo necessário' if 256 < K <= 65536 else ('❌ Insuficiente' if K > 65536 else '⚠️  Desperdício (usa 2x mais memória)')}")
+    print(f"   • uint32: 0 a 4,294,967,295 (4 bytes)  {'✅ USADO - Mínimo necessário' if K > 65536 else '⚠️  Desperdício (usa 4x mais memória)'}")
+    
+    print(f"\n🔑 INSIGHT IMPORTANTE:")
+    print(f"\n   Os ÍNDICES dominam o tamanho ({pct_indices:.1f}%)!")
+    print(f"   Os centróides são DESPREZÍVEIS ({pct_centroids:.2f}%).")
+    print(f"   ")
+    print(f"   Por isso:")
+    print(f"   • K=4 usa ~{4*12} bytes em centróides")
+    print(f"   • K=128 usa ~{128*12} bytes em centróides")
+    print(f"   • Diferença: apenas {abs(128*12 - 4*12)} bytes = {abs(128*12 - 4*12)/1024:.2f} KB!")
+    print(f"   ")
+    print(f"   Ambos têm PRATICAMENTE O MESMO tamanho porque:")
+    print(f"   ✅ Ambos usam uint8 (1 byte/pixel) para índices")
+    print(f"   ✅ Índices representam >{pct_indices:.0f}% do tamanho")
+    print(f"   ✅ Centróides são <{pct_centroids:.1f}% (insignificante!)")
+    print(f"   ")
+    print(f"   O tamanho só muda significativamente quando:")
+    print(f"   🔄 K > 256 → uint16 (2 bytes) → TAMANHO DOBRA!")
+    print(f"   🔄 K > 65,536 → uint32 (4 bytes) → TAMANHO DOBRA DE NOVO!")
+    
+    print(f"\n{'='*70}\n")
+    
+    return {
+        'original_mb': original_mb,
+        'compressed_mb': compressed_mb,
+        'compression_ratio': compression_ratio,
+        'savings_pct': savings_pct,
+        'idx_dtype': idx_dtype.__name__,
+        'bytes_per_pixel_original': 3,
+        'bytes_per_pixel_compressed': compressed_bytes / n_pixels,
+        'pct_indices': pct_indices,
+        'pct_centroids': pct_centroids
+    }
+
+
+def print_compression_comparison(results_list):
+    """
+    Imprime tabela comparativa de múltiplos resultados (diferentes K).
+    Mostra claramente quando o uint muda e o impacto no tamanho.
+    
+    Parâmetros:
+        results_list: lista de dicts com resultados de run_kmeans_grid
+    """
+    import pandas as pd
+    
+    df = pd.DataFrame(results_list)
+    
+    print(f"\n{'='*100}")
+    print(f"📊 COMPARAÇÃO DE COMPRESSÃO - MÚLTIPLOS K")
+    print(f"{'='*100}\n")
+    
+    # Cabeçalho da tabela
+    print(f"{'K':<6} {'uint':<8} {'B/px':<6} {'Centróides':<15} {'Índices':<15} {'Total':<12} {'Compressão':<12} {'PSNR':<10}")
+    print(f"{'-'*6} {'-'*8} {'-'*6} {'-'*15} {'-'*15} {'-'*12} {'-'*12} {'-'*10}")
+    
+    previous_uint = None
+    
+    for _, row in df.iterrows():
+        K = row['K']
+        dtype_name = row['idx_dtype']
+        bytes_pp = 1 if K <= 256 else (2 if K <= 65536 else 4)
+        
+        # Calcular componentes
+        cent_kb = (K * 3 * 4) / 1024
+        idx_mb = row['tamanho_comprimido_MB'] - (cent_kb / 1024)
+        total_mb = row['tamanho_comprimido_MB']
+        ratio = row['fator_compactacao']
+        psnr = row['PSNR_dB']
+        
+        # Detectar mudança de uint
+        if previous_uint is not None and previous_uint != dtype_name:
+            print(f"{'─'*6} {'─'*8} {'─'*6} {'─'*15} {'─'*15} {'─'*12} {'─'*12} {'─'*10}")
+            print(f"{'⚠️  MUDANÇA DE UINT! Tamanho dobra aqui ⬆️':^100}")
+            print(f"{'─'*6} {'─'*8} {'─'*6} {'─'*15} {'─'*15} {'─'*12} {'─'*12} {'─'*10}")
+        
+        # Imprimir linha
+        print(f"{K:<6} {dtype_name:<8} {bytes_pp:<6} {cent_kb:>10.2f} KB   {idx_mb:>10.2f} MB   {total_mb:>8.2f} MB   {ratio:>8.2f}x      {psnr:>6.2f} dB")
+        
+        previous_uint = dtype_name
+    
+    print(f"\n{'='*100}")
+    
+    # Análise geral
+    print(f"\n💡 OBSERVAÇÕES IMPORTANTES:")
+    print(f"\n1. 🟢 UINT8 (K ≤ 256):")
+    uint8_rows = df[df['K'] <= 256]
+    if len(uint8_rows) > 0:
+        min_size = uint8_rows['tamanho_comprimido_MB'].min()
+        max_size = uint8_rows['tamanho_comprimido_MB'].max()
+        print(f"   • Todos têm tamanhos MUITO similares: {min_size:.2f} - {max_size:.2f} MB")
+        print(f"   • Diferença máxima: apenas {(max_size - min_size)*1024:.1f} KB!")
+        print(f"   • Isso acontece porque índices dominam (>99% do tamanho)")
+        print(f"   • Centróides são desprezíveis (<1%)")
+    
+    print(f"\n2. 🟡 UINT16 (K = 257-65,536):")
+    uint16_rows = df[(df['K'] > 256) & (df['K'] <= 65536)]
+    if len(uint16_rows) > 0:
+        avg_size = uint16_rows['tamanho_comprimido_MB'].mean()
+        print(f"   • Tamanho médio: ~{avg_size:.2f} MB")
+        print(f"   • Aproximadamente 2x maior que uint8")
+        print(f"   • Usa 2 bytes por pixel ao invés de 1")
+    
+    print(f"\n3. 🔴 UINT32 (K > 65,536):")
+    uint32_rows = df[df['K'] > 65536]
+    if len(uint32_rows) > 0:
+        avg_size = uint32_rows['tamanho_comprimido_MB'].mean()
+        print(f"   • Tamanho médio: ~{avg_size:.2f} MB")
+        print(f"   • Aproximadamente 4x maior que uint8")
+        print(f"   • Usa 4 bytes por pixel")
+    
+    # Recomendações
+    print(f"\n🎯 RECOMENDAÇÕES:")
+    print(f"\n   Para MELHOR COMPRESSÃO:")
+    print(f"   ✅ Use K ≤ 256 (uint8) - máxima eficiência de espaço")
+    print(f"   ✅ Dentro desse range, prefira K maiores (ex: K=128 ou K=256)")
+    print(f"   ✅ Você ganha qualidade SEM aumentar o tamanho!")
+    print(f"   ")
+    print(f"   Evite:")
+    print(f"   ❌ K > 256 a menos que qualidade seja MUITO mais importante")
+    print(f"   ❌ O salto de K=256 para K=257 dobra o tamanho!")
+    
+    # Melhor escolha
+    best_k = df.loc[df['PSNR_dB'].idxmax()]
+    best_compression = df.loc[df['fator_compactacao'].idxmax()]
+    
+    print(f"\n📈 DESTAQUES:")
+    print(f"   • Melhor qualidade: K={best_k['K']} (PSNR={best_k['PSNR_dB']:.2f} dB, {best_k['tamanho_comprimido_MB']:.2f} MB)")
+    print(f"   • Melhor compressão: K={best_compression['K']} ({best_compression['fator_compactacao']:.2f}x, {best_compression['tamanho_comprimido_MB']:.2f} MB)")
+    
+    print(f"\n{'='*100}\n")

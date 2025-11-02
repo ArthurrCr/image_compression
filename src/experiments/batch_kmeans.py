@@ -5,7 +5,12 @@ import matplotlib.pyplot as plt
 import gc
 
 from src.clustering.kmeans import kMeans_init_centroids, run_kMeans, DISTANCE_FUNCTIONS
-from src.visualization.plot_3d import plot_kMeans_RGB, show_centroid_colors
+from src.visualization.plot_3d import (
+    plot_kMeans_RGB, 
+    show_centroid_colors, 
+    plot_compression_analysis,
+    plot_compression_comparison
+)
 
 
 # -------------------------------
@@ -184,7 +189,8 @@ def run_kmeans_single(X_float01, K, max_iters=10, seed=0, n_init=1,
 def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
                     save_dir=None, plot_each=True, plot_rgb=False, show_palette=False, 
                     save_plots=False, distance_metric='euclidean', 
-                    color_space='rgb', use_gpu=True):
+                    color_space='rgb', use_gpu=True,
+                    show_compression_analysis=False, show_comparison_summary=True):
     """
     Executa o pipeline para vários K com cálculo CORRETO de tamanhos e gerenciamento de memória.
     
@@ -195,13 +201,15 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
         seed: seed para reprodutibilidade
         n_init: número de inicializações por K
         save_dir: diretório para salvar resultados
-        plot_each: plotar comparação para cada K
+        plot_each: plotar comparação lado-a-lado para cada K
         plot_rgb: plotar no espaço RGB 3D
         show_palette: mostrar paleta de cores
         save_plots: salvar plots em arquivo
         distance_metric: 'euclidean', 'manhattan', 'cosine', 'chebyshev', 'minkowski'
         color_space: 'rgb', 'hsv' ou 'hls'
         use_gpu: usar GPU se disponível
+        show_compression_analysis: mostrar análise detalhada de compressão para cada K (NOVO!)
+        show_comparison_summary: mostrar gráfico comparativo final de todos os K (NOVO!)
     """
     # Validações
     if isinstance(distance_metric, str) and distance_metric not in DISTANCE_FUNCTIONS:
@@ -328,6 +336,13 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
                 fig.savefig(fig_path, bbox_inches="tight")
                 plt.close(fig)
 
+        # 📊 NOVO: Análise detalhada de compressão
+        if show_compression_analysis:
+            print(f"\n📊 Análise de Compressão para K={K}:")
+            stats = plot_compression_analysis(original_img.shape, centroids, idx, K)
+            print(f"   • Índices representam {stats['pct_indices']:.2f}% do tamanho")
+            print(f"   • Centróides representam apenas {stats['pct_centroids']:.3f}% do tamanho")
+
         # Plots extras
         if plot_rgb:
             plot_kMeans_RGB(X, centroids, idx, K)
@@ -377,5 +392,10 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
     print(f"\n{'='*70}")
     print(f"EXPERIMENTO CONCLUÍDO!")
     print(f"{'='*70}\n")
+
+    # 📊 NOVO: Gráfico comparativo final
+    if show_comparison_summary and len(results) > 1:
+        print("\n📊 Gerando gráfico comparativo de todos os K...")
+        plot_compression_comparison(results)
 
     return results
