@@ -161,11 +161,8 @@ def plot_comparison_with_stats(original_img, X_recovered, centroids, idx, K,
 # Núcleo do experimento
 # -------------------------------
 def run_kmeans_single(X_float01, K, max_iters=10, seed=0, n_init=1, 
-                      distance_metric='euclidean', color_space='rgb', use_gpu=True):
-    """
-    Roda K-Means para um K com n_init inicializações.
-    Retorna os melhores centroids/idx por SSE.
-    """
+                      distance_metric='euclidean', color_space='rgb', use_gpu=True, batch_size=200000):
+    """..."""
     best = None
     for rep in range(n_init):
         if seed is not None:
@@ -177,7 +174,8 @@ def run_kmeans_single(X_float01, K, max_iters=10, seed=0, n_init=1,
             max_iters=max_iters, 
             distance_metric=distance_metric,
             color_space=color_space,
-            use_gpu=use_gpu
+            use_gpu=use_gpu,
+            batch_size=batch_size  # ✅ PASSAR AQUI
         )
         diffs = X_float01 - centroids[idx]
         sse = float(np.sum(diffs * diffs))
@@ -185,31 +183,17 @@ def run_kmeans_single(X_float01, K, max_iters=10, seed=0, n_init=1,
             best = {"centroids": centroids, "idx": idx, "sse": sse}
     return best["centroids"], best["idx"], best["sse"]
 
-
 def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
                     save_dir=None, plot_each=True, plot_rgb=False, show_palette=False, 
                     save_plots=False, distance_metric='euclidean', 
                     color_space='rgb', use_gpu=True,
-                    show_compression_analysis=False, show_comparison_summary=True):
+                    show_compression_analysis=False, show_comparison_summary=True,
+                    batch_size=200000):  
     """
-    Executa o pipeline para vários K com cálculo CORRETO de tamanhos e gerenciamento de memória.
-    
     Parâmetros:
-        original_img: imagem original
-        K_list: lista de valores de K para testar
-        max_iters: número máximo de iterações
-        seed: seed para reprodutibilidade
-        n_init: número de inicializações por K
-        save_dir: diretório para salvar resultados
-        plot_each: plotar comparação lado-a-lado para cada K
-        plot_rgb: plotar no espaço RGB 3D
-        show_palette: mostrar paleta de cores
-        save_plots: salvar plots em arquivo
-        distance_metric: 'euclidean', 'manhattan', 'cosine', 'chebyshev', 'minkowski'
-        color_space: 'rgb', 'hsv' ou 'hls'
-        use_gpu: usar GPU se disponível
-        show_compression_analysis: IMPRIMIR análise detalhada de compressão para cada K
-        show_comparison_summary: IMPRIMIR tabela comparativa final de todos os K
+        ... (anteriores)
+        batch_size: número de pixels processados por vez (padrão: 200000)
+                   Aumente para imagens grandes ou se tiver mais memória GPU
     """
     # Validações
     if isinstance(distance_metric, str) and distance_metric not in DISTANCE_FUNCTIONS:
@@ -269,14 +253,15 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
         
         try:
             centroids, idx, sse = run_kmeans_single(
-                X, K, 
-                max_iters=max_iters, 
-                seed=seed, 
-                n_init=n_init, 
-                distance_metric=distance_metric,
-                color_space=color_space,
-                use_gpu=use_gpu
-            )
+                    X, K, 
+                    max_iters=max_iters, 
+                    seed=seed, 
+                    n_init=n_init, 
+                    distance_metric=distance_metric,
+                    color_space=color_space,
+                    use_gpu=use_gpu,
+                    batch_size=batch_size 
+                )
         except Exception as e:
             print(f"❌ Erro ao processar K={K}: {e}")
             if use_gpu and "memory" in str(e).lower():
@@ -290,7 +275,8 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
                     n_init=n_init, 
                     distance_metric=distance_metric,
                     color_space=color_space,
-                    use_gpu=False  # Forçar CPU
+                    use_gpu=False,  # Forçar CPU
+                    batch_size=batch_size  
                 )
             else:
                 raise
