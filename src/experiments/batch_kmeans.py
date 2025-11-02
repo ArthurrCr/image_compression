@@ -8,8 +8,8 @@ from src.clustering.kmeans import kMeans_init_centroids, run_kMeans, DISTANCE_FU
 from src.visualization.plot_3d import (
     plot_kMeans_RGB, 
     show_centroid_colors, 
-    plot_compression_analysis,
-    plot_compression_comparison
+    print_compression_analysis,      # ✅ CORRIGIDO
+    print_compression_comparison     # ✅ CORRIGIDO
 )
 
 
@@ -208,8 +208,8 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
         distance_metric: 'euclidean', 'manhattan', 'cosine', 'chebyshev', 'minkowski'
         color_space: 'rgb', 'hsv' ou 'hls'
         use_gpu: usar GPU se disponível
-        show_compression_analysis: mostrar análise detalhada de compressão para cada K (NOVO!)
-        show_comparison_summary: mostrar gráfico comparativo final de todos os K (NOVO!)
+        show_compression_analysis: IMPRIMIR análise detalhada de compressão para cada K
+        show_comparison_summary: IMPRIMIR tabela comparativa final de todos os K
     """
     # Validações
     if isinstance(distance_metric, str) and distance_metric not in DISTANCE_FUNCTIONS:
@@ -336,12 +336,9 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
                 fig.savefig(fig_path, bbox_inches="tight")
                 plt.close(fig)
 
-        # 📊 NOVO: Análise detalhada de compressão
+        # 📊 NOVO: Análise detalhada de compressão (PRINT)
         if show_compression_analysis:
-            print(f"\n📊 Análise de Compressão para K={K}:")
-            stats = plot_compression_analysis(original_img.shape, centroids, idx, K)
-            print(f"   • Índices representam {stats['pct_indices']:.2f}% do tamanho")
-            print(f"   • Centróides representam apenas {stats['pct_centroids']:.3f}% do tamanho")
+            stats = print_compression_analysis(original_img.shape, centroids, idx, K)
 
         # Plots extras
         if plot_rgb:
@@ -393,9 +390,8 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
     print(f"EXPERIMENTO CONCLUÍDO!")
     print(f"{'='*70}\n")
 
-    # 📊 NOVO: Gráfico comparativo final
+    # Tabela comparativa final (PRINT)
     if show_comparison_summary and len(results) > 1:
-        print("\n📊 Gerando gráfico comparativo de todos os K...")
-        plot_compression_comparison(results)
+        print_compression_comparison(results)
 
     return results
