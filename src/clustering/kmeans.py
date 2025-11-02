@@ -51,9 +51,15 @@ def to_cpu(array):
 
 # ========== FUNÇÕES DE DISTÂNCIA COM PROCESSAMENTO EM BATCHES ==========
 
-def euclidean_distance(X, centroids, xp=np, batch_size=50000):
+def euclidean_distance(X, centroids, xp=np, batch_size=200000):
     """
     Distância Euclidiana com processamento em batches para economizar memória.
+    
+    Parâmetros:
+        X: dados (n_samples, n_features)
+        centroids: centróides (n_centroids, n_features)
+        xp: numpy ou cupy
+        batch_size: número de amostras por batch (padrão: 200000)
     """
     if xp == cp and CUPY_AVAILABLE:
         X = cp.asarray(X)
@@ -69,20 +75,32 @@ def euclidean_distance(X, centroids, xp=np, batch_size=50000):
     if n_samples <= batch_size:
         return xp.linalg.norm(X[:, xp.newaxis] - centroids, axis=2)
     
-    # Processar em batches
+    # Processar em batches com feedback
     distances = xp.zeros((n_samples, n_centroids), dtype=X.dtype)
+    n_batches = int(np.ceil(n_samples / batch_size))
     
-    for start_idx in range(0, n_samples, batch_size):
+    print(f"      📦 Processando {n_samples:,} pixels em {n_batches} batches (batch_size={batch_size:,})...")
+    
+    for batch_idx, start_idx in enumerate(range(0, n_samples, batch_size)):
         end_idx = min(start_idx + batch_size, n_samples)
         batch = X[start_idx:end_idx]
         distances[start_idx:end_idx] = xp.linalg.norm(
             batch[:, xp.newaxis] - centroids, axis=2
         )
+        
+        # Feedback a cada 10%
+        if n_batches > 10 and (batch_idx + 1) % max(1, n_batches // 10) == 0:
+            progress = ((batch_idx + 1) / n_batches) * 100
+            print(f"         Progresso: {progress:.0f}% ({batch_idx + 1}/{n_batches} batches)")
+        
+        # Limpar memória a cada N batches
+        if (batch_idx + 1) % 5 == 0 and xp == cp:
+            cp.get_default_memory_pool().free_all_blocks()
     
     return distances
 
 
-def manhattan_distance(X, centroids, xp=np, batch_size=50000):
+def manhattan_distance(X, centroids, xp=np, batch_size=200000):
     """Distância Manhattan com batches"""
     if xp == cp and CUPY_AVAILABLE:
         X = cp.asarray(X)
@@ -98,18 +116,28 @@ def manhattan_distance(X, centroids, xp=np, batch_size=50000):
         return xp.sum(xp.abs(X[:, xp.newaxis] - centroids), axis=2)
     
     distances = xp.zeros((n_samples, n_centroids), dtype=X.dtype)
+    n_batches = int(np.ceil(n_samples / batch_size))
     
-    for start_idx in range(0, n_samples, batch_size):
+    print(f"      📦 Processando {n_samples:,} pixels em {n_batches} batches (batch_size={batch_size:,})...")
+    
+    for batch_idx, start_idx in enumerate(range(0, n_samples, batch_size)):
         end_idx = min(start_idx + batch_size, n_samples)
         batch = X[start_idx:end_idx]
         distances[start_idx:end_idx] = xp.sum(
             xp.abs(batch[:, xp.newaxis] - centroids), axis=2
         )
+        
+        if n_batches > 10 and (batch_idx + 1) % max(1, n_batches // 10) == 0:
+            progress = ((batch_idx + 1) / n_batches) * 100
+            print(f"         Progresso: {progress:.0f}% ({batch_idx + 1}/{n_batches} batches)")
+        
+        if (batch_idx + 1) % 5 == 0 and xp == cp:
+            cp.get_default_memory_pool().free_all_blocks()
     
     return distances
 
 
-def cosine_distance(X, centroids, xp=np, batch_size=50000):
+def cosine_distance(X, centroids, xp=np, batch_size=200000):
     """Distância Cosseno com batches"""
     if xp == cp and CUPY_AVAILABLE:
         X = cp.asarray(X)
@@ -129,16 +157,26 @@ def cosine_distance(X, centroids, xp=np, batch_size=50000):
     
     # Processar em batches
     similarities = xp.zeros((n_samples, centroids.shape[0]), dtype=X.dtype)
+    n_batches = int(np.ceil(n_samples / batch_size))
     
-    for start_idx in range(0, n_samples, batch_size):
+    print(f"      📦 Processando {n_samples:,} pixels em {n_batches} batches (batch_size={batch_size:,})...")
+    
+    for batch_idx, start_idx in enumerate(range(0, n_samples, batch_size)):
         end_idx = min(start_idx + batch_size, n_samples)
         batch = X_norm[start_idx:end_idx]
         similarities[start_idx:end_idx] = xp.dot(batch, C_norm.T)
+        
+        if n_batches > 10 and (batch_idx + 1) % max(1, n_batches // 10) == 0:
+            progress = ((batch_idx + 1) / n_batches) * 100
+            print(f"         Progresso: {progress:.0f}% ({batch_idx + 1}/{n_batches} batches)")
+        
+        if (batch_idx + 1) % 5 == 0 and xp == cp:
+            cp.get_default_memory_pool().free_all_blocks()
     
     return 1 - similarities
 
 
-def chebyshev_distance(X, centroids, xp=np, batch_size=50000):
+def chebyshev_distance(X, centroids, xp=np, batch_size=200000):
     """Distância Chebyshev com batches"""
     if xp == cp and CUPY_AVAILABLE:
         X = cp.asarray(X)
@@ -154,18 +192,28 @@ def chebyshev_distance(X, centroids, xp=np, batch_size=50000):
         return xp.max(xp.abs(X[:, xp.newaxis] - centroids), axis=2)
     
     distances = xp.zeros((n_samples, n_centroids), dtype=X.dtype)
+    n_batches = int(np.ceil(n_samples / batch_size))
     
-    for start_idx in range(0, n_samples, batch_size):
+    print(f"      📦 Processando {n_samples:,} pixels em {n_batches} batches (batch_size={batch_size:,})...")
+    
+    for batch_idx, start_idx in enumerate(range(0, n_samples, batch_size)):
         end_idx = min(start_idx + batch_size, n_samples)
         batch = X[start_idx:end_idx]
         distances[start_idx:end_idx] = xp.max(
             xp.abs(batch[:, xp.newaxis] - centroids), axis=2
         )
+        
+        if n_batches > 10 and (batch_idx + 1) % max(1, n_batches // 10) == 0:
+            progress = ((batch_idx + 1) / n_batches) * 100
+            print(f"         Progresso: {progress:.0f}% ({batch_idx + 1}/{n_batches} batches)")
+        
+        if (batch_idx + 1) % 5 == 0 and xp == cp:
+            cp.get_default_memory_pool().free_all_blocks()
     
     return distances
 
 
-def minkowski_distance(X, centroids, p=3, xp=np, batch_size=50000):
+def minkowski_distance(X, centroids, p=3, xp=np, batch_size=200000):
     """Distância Minkowski com batches"""
     if xp == cp and CUPY_AVAILABLE:
         X = cp.asarray(X)
@@ -181,13 +229,23 @@ def minkowski_distance(X, centroids, p=3, xp=np, batch_size=50000):
         return xp.sum(xp.abs(X[:, xp.newaxis] - centroids) ** p, axis=2) ** (1/p)
     
     distances = xp.zeros((n_samples, n_centroids), dtype=X.dtype)
+    n_batches = int(np.ceil(n_samples / batch_size))
     
-    for start_idx in range(0, n_samples, batch_size):
+    print(f"      📦 Processando {n_samples:,} pixels em {n_batches} batches (batch_size={batch_size:,})...")
+    
+    for batch_idx, start_idx in enumerate(range(0, n_samples, batch_size)):
         end_idx = min(start_idx + batch_size, n_samples)
         batch = X[start_idx:end_idx]
         distances[start_idx:end_idx] = xp.sum(
             xp.abs(batch[:, xp.newaxis] - centroids) ** p, axis=2
         ) ** (1/p)
+        
+        if n_batches > 10 and (batch_idx + 1) % max(1, n_batches // 10) == 0:
+            progress = ((batch_idx + 1) / n_batches) * 100
+            print(f"         Progresso: {progress:.0f}% ({batch_idx + 1}/{n_batches} batches)")
+        
+        if (batch_idx + 1) % 5 == 0 and xp == cp:
+            cp.get_default_memory_pool().free_all_blocks()
     
     return distances
 
@@ -201,7 +259,7 @@ DISTANCE_FUNCTIONS = {
 }
 
 
-# ========== CONVERSÕES (mantém igual) ==========
+# ========== CONVERSÕES DE ESPAÇO DE COR ==========
 
 def rgb_to_hsv_vectorized(rgb_array):
     """Converte RGB para HSV"""
@@ -235,7 +293,7 @@ def hsv_to_rgb_vectorized(hsv_array):
 
 # ========== K-MEANS ==========
 
-def find_closest_centroids(X, centroids, distance_metric='euclidean', use_gpu=True):
+def find_closest_centroids(X, centroids, distance_metric='euclidean', use_gpu=True, batch_size=200000):
     """Encontra centróide mais próximo com gerenciamento de memória."""
     xp = get_array_module(use_gpu)
     
@@ -250,7 +308,7 @@ def find_closest_centroids(X, centroids, distance_metric='euclidean', use_gpu=Tr
         distance_func = distance_metric
     
     # Calcular distâncias com batching automático
-    distances = distance_func(X, centroids, xp=xp)
+    distances = distance_func(X, centroids, xp=xp, batch_size=batch_size)
     
     idx = xp.argmin(distances, axis=1).astype(int)
     
@@ -299,8 +357,21 @@ def kMeans_init_centroids(X, K, use_gpu=True):
 
 def run_kMeans(X, initial_centroids, max_iters=10, plot_progress=False, 
                plot_function=None, distance_metric='euclidean', 
-               color_space='rgb', use_gpu=True):
-    """Executa K-Means com gerenciamento de memória."""
+               color_space='rgb', use_gpu=True, batch_size=200000):
+    """
+    Executa K-Means com gerenciamento de memória.
+    
+    Parâmetros:
+        X: dados de entrada
+        initial_centroids: centróides iniciais
+        max_iters: número máximo de iterações
+        plot_progress: se True, plota progresso
+        plot_function: função para plotar
+        distance_metric: métrica de distância
+        color_space: 'rgb', 'hsv' ou 'hls'
+        use_gpu: usar GPU se disponível
+        batch_size: número de amostras por batch (padrão: 200000)
+    """
     xp = get_array_module(use_gpu)
     
     # Limpar memória antes de começar
@@ -308,9 +379,9 @@ def run_kMeans(X, initial_centroids, max_iters=10, plot_progress=False,
         clear_gpu_memory()
     
     if use_gpu and CUPY_AVAILABLE:
-        print(f"🚀 Executando K-Means na GPU")
+        print(f"🚀 Executando K-Means na GPU (batch_size={batch_size:,})")
     else:
-        print(f"💻 Executando K-Means na CPU")
+        print(f"💻 Executando K-Means na CPU (batch_size={batch_size:,})")
     
     X = to_device(X, use_gpu)
     initial_centroids = to_device(initial_centroids, use_gpu)
@@ -341,7 +412,8 @@ def run_kMeans(X, initial_centroids, max_iters=10, plot_progress=False,
         
         idx = find_closest_centroids(X_transformed, centroids, 
                                      distance_metric=distance_metric, 
-                                     use_gpu=use_gpu)
+                                     use_gpu=use_gpu,
+                                     batch_size=batch_size)
         
         if plot_progress and plot_function is not None:
             X_plot = to_cpu(X_transformed)
