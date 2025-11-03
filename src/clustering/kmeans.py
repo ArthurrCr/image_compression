@@ -294,7 +294,10 @@ def hsv_to_rgb_vectorized(hsv_array):
 # ========== K-MEANS ==========
 
 def find_closest_centroids(X, centroids, distance_metric='euclidean', use_gpu=True, batch_size=200000):
-    """Encontra centróide mais próximo com gerenciamento de memória."""
+    """
+    Encontra centróide mais próximo processando em batches REAIS.
+    Não aloca array de distâncias completo - processa batch por batch.
+    """
     xp = get_array_module(use_gpu)
     
     X = to_device(X, use_gpu)
@@ -303,17 +306,70 @@ def find_closest_centroids(X, centroids, distance_metric='euclidean', use_gpu=Tr
     if isinstance(distance_metric, str):
         if distance_metric not in DISTANCE_FUNCTIONS:
             raise ValueError(f"Métrica '{distance_metric}' não reconhecida.")
+        # Usar função wrapper que processa em batches
         distance_func = DISTANCE_FUNCTIONS[distance_metric]
     else:
         distance_func = distance_metric
     
-    # Calcular distâncias com batching automático
-    distances = distance_func(X, centroids, xp=xp, batch_size=batch_size)
+    n_samples = X.shape[0]
+    n_centroids = centroids.shape[0]
     
-    idx = xp.argmin(distances, axis=1).astype(int)
+    # 🔥 OTIMIZAÇÃO: Se o array de distâncias completo for muito grande, processar diretamente
+    estimated_memory_gb = (n_samples * n_centroids * 4) / (1024**3)  # float32 = 4 bytes
     
-    # Limpar variável temporária grande
-    del distances
+    if estimated_memory_gb > 10:  # Se for mais que 10GB
+        print(f"      ⚠️  Array de distâncias seria {estimated_memory_gb:.1f} GB!")
+        print(f"      💡 Processando índices diretamente em batches...")
+        
+        # Processar DIRETAMENTE em batches sem criar array completo
+        idx = xp.zeros(n_samples, dtype=int)
+        n_batches = int(np.ceil(n_samples / batch_size))
+        
+        for batch_idx, start_idx in enumerate(range(0, n_samples, batch_size)):
+            end_idx = min(start_idx + batch_size, n_samples)
+            batch = X[start_idx:end_idx]
+            
+            # Calcular distâncias APENAS para este batch
+            if distance_metric == 'euclidean':
+                batch_distances = xp.linalg.norm(batch[:, xp.newaxis] - centroids, axis=2)
+            elif distance_metric == 'manhattan':
+                batch_distances = xp.sum(xp.abs(batch[:, xp.newaxis] - centroids), axis=2)
+            elif distance_metric == 'cosine':
+                batch_norm = batch / (xp.linalg.norm(batch, axis=1, keepdims=True) + 1e-10)
+                cent_norm = centroids / (xp.linalg.norm(centroids, axis=1, keepdims=True) + 1e-10)
+                batch_distances = 1 - xp.dot(batch_norm, cent_norm.T)
+            elif distance_metric == 'chebyshev':
+                batch_distances = xp.max(xp.abs(batch[:, xp.newaxis] - centroids), axis=2)
+            elif distance_metric == 'minkowski':
+                batch_distances = xp.sum(xp.abs(batch[:, xp.newaxis] - centroids) ** 3, axis=2) ** (1/3)
+            else:
+                # Fallback para função customizada
+                batch_distances = distance_func(batch, centroids, xp=xp, batch_size=batch_size)
+            
+            # Encontrar índices do mínimo APENAS para este batch
+            idx[start_idx:end_idx] = xp.argmin(batch_distances, axis=1).astype(int)
+            
+            # Limpar batch de distâncias
+            del batch_distances
+            
+            # Feedback
+            if n_batches > 10 and (batch_idx + 1) % max(1, n_batches // 10) == 0:
+                progress = ((batch_idx + 1) / n_batches) * 100
+                print(f"         Progresso: {progress:.0f}% ({batch_idx + 1}/{n_batches} batches)")
+            
+            # Limpar memória GPU periodicamente
+            if (batch_idx + 1) % 5 == 0 and use_gpu and CUPY_AVAILABLE:
+                cp.get_default_memory_pool().free_all_blocks()
+        
+        return idx
+    
+    else:
+        # Para datasets menores, usar o método original (mais rápido)
+        distances = distance_func(X, centroids, xp=xp, batch_size=batch_size)
+        idx = xp.argmin(distances, axis=1).astype(int)
+        del distances
+        
+    # Limpar memória
     if use_gpu and CUPY_AVAILABLE:
         cp.get_default_memory_pool().free_all_blocks()
     

@@ -8,8 +8,9 @@ from src.clustering.kmeans import kMeans_init_centroids, run_kMeans, DISTANCE_FU
 from src.visualization.plot_3d import (
     plot_kMeans_RGB, 
     show_centroid_colors, 
-    print_compression_analysis,      # ✅ CORRIGIDO
-    print_compression_comparison     # ✅ CORRIGIDO
+    print_compression_analysis,
+    print_compression_comparison,
+    plot_zoom_comparison  
 )
 
 
@@ -92,10 +93,17 @@ def _compute_sse_mse_psnr(X_float01, centroids, idx, max_i):
     sse = float(np.sum(diffs * diffs))
     C = X_float01.shape[1]
     mse = sse / (X_float01.shape[0] * C)
-    if mse == 0:
+    
+    # DEBUG: Imprimir valores intermediários
+    print(f"      [DEBUG] MSE: {mse:.10f}, max_i: {max_i}")
+    
+    if mse == 0 or mse < 1e-10:  # MSE muito próximo de zero
         psnr = float("inf")
+        print(f"      ⚠️  MSE quase zero! Imagem quase idêntica.")
     else:
         psnr = 20.0 * np.log10(max_i) - 10.0 * np.log10(mse)
+        print(f"      [DEBUG] PSNR calculado: {psnr:.2f} dB")
+    
     return sse, mse, psnr
 
 
@@ -134,14 +142,14 @@ def plot_comparison_with_stats(original_img, X_recovered, centroids, idx, K,
 
     ax[0].imshow(original_img)
     ax[0].set_title(
-        f'Original\nTamanho: {original_size_mb:.2f} MB ({H}×{W}×3 uint8)\nCores únicas: {unique_colors_original:,}',
+        f'Original\nTamanho: {original_size_mb:.2f} MB \nCores únicas: {unique_colors_original:,}',
         fontsize=14
     )
     ax[0].set_axis_off()
 
     ax[1].imshow(X_recovered)
     ax[1].set_title(
-        f'Comprimida com {K} cores\nTamanho: {compressed_size_mb:.2f} MB \nCores únicas: {unique_colors_compressed:,}\nMétrica: {distance_metric} | Espaço: {color_space.upper()}',
+        f'Comprimida com {K} cores\nTamanho: {compressed_size_mb:.2f} MB \nCores únicas: {unique_colors_compressed:,}',
         fontsize=14
     )
     ax[1].set_axis_off()
@@ -162,7 +170,10 @@ def plot_comparison_with_stats(original_img, X_recovered, centroids, idx, K,
 # -------------------------------
 def run_kmeans_single(X_float01, K, max_iters=10, seed=0, n_init=1, 
                       distance_metric='euclidean', color_space='rgb', use_gpu=True, batch_size=200000):
-    """..."""
+    """
+    Roda K-Means para um K com n_init inicializações.
+    Retorna os melhores centroids/idx por SSE.
+    """
     best = None
     for rep in range(n_init):
         if seed is not None:
@@ -175,7 +186,7 @@ def run_kmeans_single(X_float01, K, max_iters=10, seed=0, n_init=1,
             distance_metric=distance_metric,
             color_space=color_space,
             use_gpu=use_gpu,
-            batch_size=batch_size  # ✅ PASSAR AQUI
+            batch_size=batch_size
         )
         diffs = X_float01 - centroids[idx]
         sse = float(np.sum(diffs * diffs))
@@ -183,17 +194,35 @@ def run_kmeans_single(X_float01, K, max_iters=10, seed=0, n_init=1,
             best = {"centroids": centroids, "idx": idx, "sse": sse}
     return best["centroids"], best["idx"], best["sse"]
 
+
 def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
                     save_dir=None, plot_each=True, plot_rgb=False, show_palette=False, 
                     save_plots=False, distance_metric='euclidean', 
                     color_space='rgb', use_gpu=True,
                     show_compression_analysis=False, show_comparison_summary=True,
-                    batch_size=200000):  
+                    batch_size=200000, show_zoom=False, zoom_size=200):
     """
+    Executa o pipeline para vários K com cálculo CORRETO de tamanhos e gerenciamento de memória.
+    
     Parâmetros:
-        ... (anteriores)
+        original_img: imagem original
+        K_list: lista de valores de K para testar
+        max_iters: número máximo de iterações
+        seed: seed para reprodutibilidade
+        n_init: número de inicializações por K
+        save_dir: diretório para salvar resultados
+        plot_each: plotar comparação lado-a-lado para cada K
+        plot_rgb: plotar no espaço RGB 3D
+        show_palette: mostrar paleta de cores
+        save_plots: salvar plots em arquivo
+        distance_metric: 'euclidean', 'manhattan', 'cosine', 'chebyshev', 'minkowski'
+        color_space: 'rgb', 'hsv' ou 'hls'
+        use_gpu: usar GPU se disponível
+        show_compression_analysis: IMPRIMIR análise detalhada de compressão para cada K
+        show_comparison_summary: IMPRIMIR tabela comparativa final de todos os K
         batch_size: número de pixels processados por vez (padrão: 200000)
-                   Aumente para imagens grandes ou se tiver mais memória GPU
+        show_zoom: mostrar zoom comparativo em região aleatória (padrão: False)
+        zoom_size: tamanho da região de zoom em pixels (padrão: 200)
     """
     # Validações
     if isinstance(distance_metric, str) and distance_metric not in DISTANCE_FUNCTIONS:
@@ -233,6 +262,7 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
     print(f"Espaço de cor:        {color_space.upper()}")
     print(f"Device:               {device_info}")
     print(f"Valores de K:         {K_list}")
+    print(f"Batch size:           {batch_size:,} pixels")
     print(f"{'='*70}\n")
 
     for K in K_list:
@@ -253,15 +283,15 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
         
         try:
             centroids, idx, sse = run_kmeans_single(
-                    X, K, 
-                    max_iters=max_iters, 
-                    seed=seed, 
-                    n_init=n_init, 
-                    distance_metric=distance_metric,
-                    color_space=color_space,
-                    use_gpu=use_gpu,
-                    batch_size=batch_size 
-                )
+                X, K, 
+                max_iters=max_iters, 
+                seed=seed, 
+                n_init=n_init, 
+                distance_metric=distance_metric,
+                color_space=color_space,
+                use_gpu=use_gpu,
+                batch_size=batch_size
+            )
         except Exception as e:
             print(f"❌ Erro ao processar K={K}: {e}")
             if use_gpu and "memory" in str(e).lower():
@@ -275,8 +305,8 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
                     n_init=n_init, 
                     distance_metric=distance_metric,
                     color_space=color_space,
-                    use_gpu=False,  # Forçar CPU
-                    batch_size=batch_size  
+                    use_gpu=False,
+                    batch_size=batch_size
                 )
             else:
                 raise
@@ -321,10 +351,26 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
                 fig_path = os.path.join(save_dir, f"plot_k{K}_{distance_metric}_{color_space}.png")
                 fig.savefig(fig_path, bbox_inches="tight")
                 plt.close(fig)
+        
+        # Após reconstruir a imagem
+        rec_img = _reconstruct_image(centroids, idx, original_img.shape, original_dtype)
 
-        # 📊 NOVO: Análise detalhada de compressão (PRINT)
+        # 🔍 VERIFICAÇÃO: Imagens são diferentes?
+        diff_pixels = np.sum(original_img != rec_img)
+        total_pixels = original_img.size
+        print(f"      [DEBUG] Pixels diferentes: {diff_pixels:,} de {total_pixels:,} ({(diff_pixels/total_pixels)*100:.2f}%)")
+
+        # Se 0% de pixels diferentes → BUG!
+        if diff_pixels == 0:
+            print(f"      ❌ BUG: Imagens são IDÊNTICAS! Algo está errado.")
+
+        # 📊 Análise detalhada de compressão (PRINT)
         if show_compression_analysis:
             stats = print_compression_analysis(original_img.shape, centroids, idx, K)
+
+        # 🔍 NOVO: Mostrar zoom comparativo
+        if show_zoom:
+            plot_zoom_comparison(original_img, rec_img, K, zoom_size=zoom_size, seed=seed)
 
         # Plots extras
         if plot_rgb:
@@ -376,7 +422,7 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
     print(f"EXPERIMENTO CONCLUÍDO!")
     print(f"{'='*70}\n")
 
-    # Tabela comparativa final (PRINT)
+    # 📊 Tabela comparativa final (PRINT)
     if show_comparison_summary and len(results) > 1:
         print_compression_comparison(results)
 

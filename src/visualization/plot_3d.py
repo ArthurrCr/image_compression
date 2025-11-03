@@ -286,3 +286,118 @@ def print_compression_comparison(results_list):
     print(f"   • Melhor compressão: K={best_compression['K']} ({best_compression['fator_compactacao']:.2f}x, {best_compression['tamanho_comprimido_MB']:.2f} MB)")
     
     print(f"\n{'='*100}\n")
+
+def plot_zoom_comparison(original_img, compressed_img, K, zoom_size=200, seed=None):
+    """
+    Plota zoom em região aleatória comparando original vs comprimida.
+    Mostra os efeitos da quantização em detalhes.
+    
+    Parâmetros:
+        original_img: imagem original
+        compressed_img: imagem comprimida
+        K: número de cores usado
+        zoom_size: tamanho da região de zoom (pixels)
+        seed: seed para posição aleatória (None = aleatório)
+    """
+    H, W, C = original_img.shape
+    
+    # Garantir que zoom_size não seja maior que a imagem
+    zoom_h = min(zoom_size, H)
+    zoom_w = min(zoom_size, W)
+    
+    # Escolher posição aleatória para zoom
+    if seed is not None:
+        np.random.seed(seed)
+    
+    # Garantir que a região caiba na imagem
+    max_y = H - zoom_h
+    max_x = W - zoom_w
+    
+    if max_y <= 0 or max_x <= 0:
+        print("⚠️  Imagem muito pequena para zoom")
+        return
+    
+    start_y = np.random.randint(0, max_y)
+    start_x = np.random.randint(0, max_x)
+    
+    end_y = start_y + zoom_h
+    end_x = start_x + zoom_w
+    
+    # Extrair regiões
+    zoom_original = original_img[start_y:end_y, start_x:end_x]
+    zoom_compressed = compressed_img[start_y:end_y, start_x:end_x]
+    
+    # Criar figura
+    fig = plt.figure(figsize=(20, 10))
+    
+    # ========== ROW 1: Imagens completas com retângulo ==========
+    ax1 = plt.subplot(2, 2, 1)
+    ax1.imshow(original_img)
+    ax1.set_title('Original - Imagem Completa', fontsize=14, fontweight='bold')
+    ax1.axis('off')
+    
+    # ========== ROW 2: Zoom nas regiões ==========
+    ax3 = plt.subplot(2, 2, 3)
+    ax3.imshow(zoom_original)
+    ax3.set_title(f'Zoom Original', 
+                  fontsize=12, fontweight='bold')
+    ax3.axis('off')
+    
+    # Adicionar grid para ver pixels individuais se zoom for pequeno
+    if zoom_size <= 50:
+        ax3.set_xticks(np.arange(-0.5, zoom_w, 1), minor=True)
+        ax3.set_yticks(np.arange(-0.5, zoom_h, 1), minor=True)
+        ax3.grid(which='minor', color='gray', linestyle='-', linewidth=0.5, alpha=0.3)
+    
+    ax4 = plt.subplot(2, 2, 4)
+    ax4.imshow(zoom_compressed)
+    ax4.set_title(f'Zoom Comprimida', 
+                  fontsize=12, fontweight='bold')
+    ax4.axis('off')
+    
+    # Adicionar grid
+    if zoom_size <= 50:
+        ax4.set_xticks(np.arange(-0.5, zoom_w, 1), minor=True)
+        ax4.set_yticks(np.arange(-0.5, zoom_h, 1), minor=True)
+        ax4.grid(which='minor', color='gray', linestyle='-', linewidth=0.5, alpha=0.3)
+    
+    # Calcular diferença na região de zoom
+    def to_float(img):
+        if img.dtype == np.uint8:
+            return img.astype(np.float32) / 255.0
+        return img.astype(np.float32)
+    
+    zoom_orig_f = to_float(zoom_original)
+    zoom_comp_f = to_float(zoom_compressed)
+    
+    # Métricas da região de zoom
+    mse_zoom = np.mean((zoom_orig_f - zoom_comp_f) ** 2)
+    if mse_zoom > 0:
+        psnr_zoom = 20 * np.log10(1.0) - 10 * np.log10(mse_zoom)
+    else:
+        psnr_zoom = float('inf')
+    
+    # Cores únicas na região
+    colors_orig_zoom = len(np.unique(zoom_original.reshape(-1, 3), axis=0))
+    colors_comp_zoom = len(np.unique(zoom_compressed.reshape(-1, 3), axis=0))
+    
+    # Título geral
+    plt.suptitle(
+        f'Comparação com Zoom - K={K} cores\n'
+        f'Região de Zoom: PSNR={psnr_zoom:.2f} dB | '
+        f'Cores: {colors_orig_zoom} → {colors_comp_zoom} | '
+        f'Redução: {((1 - colors_comp_zoom/colors_orig_zoom) * 100):.1f}%',
+        fontsize=16, fontweight='bold', y=0.98
+    )
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # Imprimir informações
+    print(f"\n🔍 ANÁLISE DA REGIÃO DE ZOOM:")
+    print(f"   Posição: ({start_x}, {start_y}) até ({end_x}, {end_y})")
+    print(f"   Tamanho: {zoom_w}×{zoom_h} pixels")
+    print(f"   PSNR da região: {psnr_zoom:.2f} dB")
+    print(f"   Cores originais: {colors_orig_zoom}")
+    print(f"   Cores comprimidas: {colors_comp_zoom}")
+    print(f"   Redução de cores: {((1 - colors_comp_zoom/colors_orig_zoom) * 100):.1f}%\n")
