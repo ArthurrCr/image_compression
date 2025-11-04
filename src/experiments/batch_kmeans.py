@@ -71,17 +71,26 @@ def reconstruct_image(centroids, idx, original_shape, original_dtype):
 
 
 def compute_quality_metrics(X_float, centroids, idx, max_value):
-    """Calcula SSE, MSE e PSNR."""
+    """
+    Calcula SSE, MSE e PSNR.
+    
+    IMPORTANTE: X_float e centroids devem estar normalizados [0,1],
+    então usamos max_value=1.0 para o cálculo do PSNR.
+    """
     diffs = X_float - centroids[idx]
     sse = float(np.sum(diffs ** 2))
     
     n_channels = X_float.shape[1]
     mse = sse / (X_float.shape[0] * n_channels)
     
+    # CORREÇÃO: Como X_float está normalizado [0,1], usar max_value=1.0
+    # para PSNR correto
     if mse < 1e-10:
         psnr = float('inf')
     else:
-        psnr = 20.0 * np.log10(max_value) - 10.0 * np.log10(mse)
+        # PSNR = 20*log10(MAX) - 10*log10(MSE)
+        # Com dados normalizados, MAX = 1.0, então 20*log10(1.0) = 0
+        psnr = -10.0 * np.log10(mse)
     
     return sse, mse, psnr
 
