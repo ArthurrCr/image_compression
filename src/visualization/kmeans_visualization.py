@@ -1,6 +1,7 @@
 """
 Funções de visualização para K-Means em compressão de imagens.
 Inclui plots 3D, paletas de cores, análises de compressão e zoom.
+Consolidação de plot_3d.py e visualization.py.
 """
 
 import numpy as np
@@ -94,168 +95,6 @@ def get_index_dtype_info(K):
         return np.uint16, 2, "0 a 65,535"
     else:
         return np.uint32, 4, "0 a 4,294,967,295"
-
-
-def print_compression_analysis(original_shape, centroids, idx, K):
-    """
-    Imprime análise detalhada da compressão.
-    
-    Args:
-        original_shape: (H, W, C) da imagem original
-        centroids: Array de centróides
-        idx: Array de índices
-        K: Número de clusters
-        
-    Returns:
-        Dict com estatísticas de compressão
-    """
-    H, W, C = original_shape
-    n_pixels = H * W
-    
-    # Informações sobre dtype
-    idx_dtype, bytes_per_pixel, uint_range = get_index_dtype_info(K)
-    
-    # Tamanhos
-    original_bytes = n_pixels * 3  # RGB uint8
-    original_mb = original_bytes / (1024 * 1024)
-    
-    centroids_bytes = K * 3 * 4  # float32
-    centroids_kb = centroids_bytes / 1024
-    
-    indices_bytes = n_pixels * bytes_per_pixel
-    indices_mb = indices_bytes / (1024 * 1024)
-    
-    compressed_bytes = centroids_bytes + indices_bytes
-    compressed_mb = compressed_bytes / (1024 * 1024)
-    
-    # Percentuais
-    pct_indices = (indices_bytes / compressed_bytes) * 100
-    pct_centroids = (centroids_bytes / compressed_bytes) * 100
-    
-    # Taxa de compressão
-    ratio = original_mb / compressed_mb if compressed_mb > 0 else float('inf')
-    savings_pct = (1 - compressed_mb / original_mb) * 100
-    
-    # Imprimir
-    print(f"\n{'='*70}")
-    print(f"📊 ANÁLISE DE COMPRESSÃO (K={K})")
-    print(f"{'='*70}")
-    
-    print(f"\n📐 ORIGINAL:")
-    print(f"   • Resolução: {H}×{W} ({n_pixels:,} pixels)")
-    print(f"   • Tamanho: {original_mb:.2f} MB (RGB uint8)")
-    
-    print(f"\n🗜️  COMPRIMIDA:")
-    print(f"   • Centróides: {centroids_kb:.2f} KB ({pct_centroids:.2f}%)")
-    print(f"   • Índices: {indices_mb:.2f} MB ({pct_indices:.2f}%) ⬅️ Dominante")
-    print(f"   • Total: {compressed_mb:.2f} MB")
-    print(f"   • Dtype índices: {idx_dtype.__name__} ({bytes_per_pixel} byte/pixel)")
-    
-    print(f"\n📊 RESULTADO:")
-    print(f"   • Taxa: {ratio:.2f}x")
-    print(f"   • Economia: {savings_pct:.1f}%")
-    print(f"   • Bytes/pixel: 3.0 → {compressed_bytes/n_pixels:.3f}")
-    
-    print(f"\n💡 INSIGHT:")
-    print(f"   Índices dominam ({pct_indices:.0f}%)!")
-    print(f"   K=4 e K=128 têm tamanho similar se ambos usam uint8.")
-    print(f"   Tamanho só muda significativamente quando K > 256 (uint16).")
-    
-    print(f"\n{'='*70}\n")
-    
-    return {
-        'original_mb': original_mb,
-        'compressed_mb': compressed_mb,
-        'compression_ratio': ratio,
-        'savings_pct': savings_pct,
-        'idx_dtype': idx_dtype.__name__,
-        'pct_indices': pct_indices,
-        'pct_centroids': pct_centroids
-    }
-
-
-def print_compression_comparison(results_list):
-    """
-    Imprime tabela comparativa de múltiplos K.
-    
-    Args:
-        results_list: Lista de dicts com resultados
-    """
-    import pandas as pd
-    
-    df = pd.DataFrame(results_list)
-    
-    print(f"\n{'='*90}")
-    print(f"📊 COMPARAÇÃO - MÚLTIPLOS K")
-    print(f"{'='*90}\n")
-    
-    # Cabeçalho
-    print(f"{'K':<6} {'uint':<8} {'B/px':<6} {'Centróides':<12} "
-          f"{'Índices':<12} {'Total':<10} {'Taxa':<8} {'PSNR':<8}")
-    print(f"{'-'*6} {'-'*8} {'-'*6} {'-'*12} "
-          f"{'-'*12} {'-'*10} {'-'*8} {'-'*8}")
-    
-    previous_dtype = None
-    
-    for _, row in df.iterrows():
-        K = row['K']
-        dtype_name = row['idx_dtype']
-        bytes_pp = 1 if K <= 256 else (2 if K <= 65536 else 4)
-        
-        cent_kb = (K * 3 * 4) / 1024
-        idx_mb = row['tamanho_comprimido_MB'] - (cent_kb / 1024)
-        total_mb = row['tamanho_comprimido_MB']
-        ratio = row['fator_compactacao']
-        psnr = row['PSNR_dB']
-        
-        # Detectar mudança de dtype
-        if previous_dtype and previous_dtype != dtype_name:
-            print(f"{'-'*90}")
-            print(f"{'⚠️  MUDANÇA DE DTYPE - Tamanho dobra!':^90}")
-            print(f"{'-'*90}")
-        
-        print(f"{K:<6} {dtype_name:<8} {bytes_pp:<6} "
-              f"{cent_kb:>8.2f} KB  {idx_mb:>8.2f} MB  "
-              f"{total_mb:>7.2f} MB  {ratio:>6.2f}x  {psnr:>6.1f} dB")
-        
-        previous_dtype = dtype_name
-    
-    print(f"\n{'='*90}")
-    
-    # Análise por categoria
-    print(f"\n💡 OBSERVAÇÕES:")
-    
-    uint8_rows = df[df['K'] <= 256]
-    if len(uint8_rows) > 0:
-        min_size = uint8_rows['tamanho_comprimido_MB'].min()
-        max_size = uint8_rows['tamanho_comprimido_MB'].max()
-        print(f"\n🟢 UINT8 (K ≤ 256):")
-        print(f"   • Tamanhos similares: {min_size:.2f} - {max_size:.2f} MB")
-        print(f"   • Diferença: {(max_size - min_size)*1024:.1f} KB")
-        print(f"   • Índices dominam (>99% do tamanho)")
-    
-    uint16_rows = df[(df['K'] > 256) & (df['K'] <= 65536)]
-    if len(uint16_rows) > 0:
-        avg_size = uint16_rows['tamanho_comprimido_MB'].mean()
-        print(f"\n🟡 UINT16 (K = 257-65,536):")
-        print(f"   • Tamanho médio: {avg_size:.2f} MB (~2x maior)")
-    
-    # Recomendações
-    print(f"\n🎯 RECOMENDAÇÃO:")
-    print(f"   Use K ≤ 256 para máxima eficiência!")
-    print(f"   Prefira K maiores (128, 256) = melhor qualidade sem custo.")
-    
-    # Destaques
-    best_quality = df.loc[df['PSNR_dB'].idxmax()]
-    best_compression = df.loc[df['fator_compactacao'].idxmax()]
-    
-    print(f"\n📈 DESTAQUES:")
-    print(f"   • Melhor qualidade: K={best_quality['K']} "
-          f"(PSNR={best_quality['PSNR_dB']:.1f} dB)")
-    print(f"   • Melhor compressão: K={best_compression['K']} "
-          f"({best_compression['fator_compactacao']:.2f}x)")
-    
-    print(f"\n{'='*90}\n")
 
 
 # ========== ZOOM COMPARATIVO ==========
@@ -391,3 +230,166 @@ def plot_zoom_comparison(original_img, compressed_img, K,
     print(f"   PSNR: {psnr_zoom:.2f} dB")
     print(f"   Cores: {colors_orig} → {colors_comp} "
           f"({reduction_pct:.1f}% redução)\n")
+
+
+# ========== PLOT INDIVIDUAL ==========
+
+def plot_single_result(result, show_comparison=True, show_rgb=False,
+                       show_palette=False, show_analysis=False,
+                       show_zoom=False, zoom_size=200):
+    """
+    Plota visualizações para um único resultado.
+    
+    Args:
+        result: Dict de resultado do run_kmeans_grid
+        show_comparison: Mostrar comparação lado-a-lado
+        show_rgb: Mostrar plot 3D RGB
+        show_palette: Mostrar paleta de cores
+        show_analysis: Mostrar análise de compressão
+        show_zoom: Mostrar zoom comparativo
+        zoom_size: Tamanho da região de zoom
+    """
+    K = result['K']
+    print(f"\n{'='*70}")
+    print(f"VISUALIZANDO K={K}")
+    print(f"{'='*70}\n")
+    
+    # 1. Comparação lado-a-lado
+    if show_comparison:
+        plot_comparison_sidebyside(result)
+    
+    # 2. Plot 3D RGB
+    if show_rgb:
+        plot_kmeans_rgb(
+            result['X'],
+            result['centroids'],
+            result['idx'],
+            K
+        )
+    
+    # 3. Paleta de cores
+    if show_palette:
+        show_centroid_colors(result['centroids'])
+    
+    # 4. Zoom comparativo
+    if show_zoom:
+        plot_zoom_comparison(
+            result['original_img'],
+            result['compressed_img'],
+            K,
+            zoom_size=zoom_size,
+            seed=42
+        )
+
+
+def plot_comparison_sidebyside(result):
+    """
+    Plota comparação lado-a-lado para um resultado.
+    
+    Args:
+        result: Dict de resultado
+    """
+    original_img = result['original_img']
+    compressed_img = result['compressed_img']
+    K = result['K']
+    
+    # Estatísticas
+    unique_original = result['cores_unicas_original']
+    unique_compressed = result['cores_unicas_comprimida']
+    original_mb = result['tamanho_original_MB']
+    compressed_mb = result['tamanho_comprimido_MB']
+    ratio = result['fator_compactacao']
+    psnr = result['PSNR_dB']
+    
+    reduction_pct = (1 - compressed_mb / original_mb) * 100
+    
+    # Plotar
+    fig, ax = plt.subplots(1, 2, figsize=(16, 8))
+    
+    ax[0].imshow(original_img)
+    ax[0].set_title(
+        f'Original\n'
+        f'{original_mb:.2f} MB | {unique_original:,} cores',
+        fontsize=14
+    )
+    ax[0].axis('off')
+    
+    ax[1].imshow(compressed_img)
+    ax[1].set_title(
+        f'Comprimida (K={K})\n'
+        f'{compressed_mb:.2f} MB | {unique_compressed:,} cores',
+        fontsize=14
+    )
+    ax[1].axis('off')
+    
+    plt.suptitle(
+        f'Compressão {ratio:.2f}x ({reduction_pct:.1f}% redução) | '
+        f'PSNR: {psnr:.1f} dB',
+        fontsize=16,
+        y=0.95
+    )
+    
+    plt.tight_layout()
+    plt.show()
+
+
+# ========== PLOT MÚLTIPLOS ==========
+
+def plot_all_comparisons(results):
+    """
+    Plota comparações lado-a-lado para todos os resultados.
+    
+    Args:
+        results: Lista de resultados do run_kmeans_grid
+    """
+    for result in results:
+        plot_comparison_sidebyside(result)
+
+
+def plot_all_rgb(results):
+    """
+    Plota visualizações RGB 3D para todos os resultados.
+    
+    Args:
+        results: Lista de resultados
+    """
+    for result in results:
+        K = result['K']
+        print(f"\n--- RGB 3D para K={K} ---")
+        plot_kmeans_rgb(
+            result['X'],
+            result['centroids'],
+            result['idx'],
+            K
+        )
+
+
+def plot_all_palettes(results):
+    """
+    Mostra paletas de cores para todos os resultados.
+    
+    Args:
+        results: Lista de resultados
+    """
+    for result in results:
+        K = result['K']
+        print(f"\n--- Paleta para K={K} ---")
+        show_centroid_colors(result['centroids'])
+
+
+def plot_all_zooms(results, zoom_size=200):
+    """
+    Plota zoom comparativo para todos os resultados.
+    
+    Args:
+        results: Lista de resultados
+        zoom_size: Tamanho da região de zoom
+    """
+    for result in results:
+        plot_zoom_comparison(
+            result['original_img'],
+            result['compressed_img'],
+            result['K'],
+            zoom_size=zoom_size,
+            seed=42
+        )

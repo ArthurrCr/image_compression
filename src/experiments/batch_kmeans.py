@@ -174,16 +174,6 @@ def run_kmeans_grid(original_img, K_list, max_iters=10, seed=0, n_init=1,
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
     
-    # Header
-    print(f"\n{'='*70}")
-    print(f"PROCESSANDO K-MEANS")
-    print(f"{'='*70}")
-    print(f"Resolução:   {H}×{W} ({H*W:,} pixels)")
-    print(f"Device:      {device_info}")
-    print(f"K valores:   {K_list}")
-    print(f"Batch size:  {batch_size:,}")
-    print(f"{'='*70}\n")
-    
     results = []
     
     # Loop principal
