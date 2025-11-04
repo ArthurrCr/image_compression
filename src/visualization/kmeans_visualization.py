@@ -11,15 +11,16 @@ from matplotlib.patches import Rectangle
 
 # ========== VISUALIZAÇÕES 3D E PALETA ==========
 
-def plot_kmeans_rgb(X, centroids, idx, K):
+def plot_kmeans_rgb(X, centroids, idx, K, max_points=10000):
     """
-    Plota resultado do K-Means no espaço RGB 3D.
+    Plota resultado do K-Means no espaço RGB 3D (otimizado com subsampling).
     
     Args:
         X: Dados (n_samples, 3)
         centroids: Centróides (K, 3)
         idx: Índices dos clusters (n_samples,)
         K: Número de clusters
+        max_points: Número máximo de pontos a plotar (default: 10000)
     """
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
@@ -28,25 +29,48 @@ def plot_kmeans_rgb(X, centroids, idx, K):
     X_plot = X / 255.0 if X.max() > 1.0 else X
     centroids_plot = centroids / 255.0 if centroids.max() > 1.0 else centroids
     
-    # Plotar cada cluster com cor do centróide
-    for k in range(K):
-        cluster_points = X_plot[idx == k]
-        if cluster_points.size == 0:
-            continue
-        
-        ax.scatter(
-            cluster_points[:, 0],
-            cluster_points[:, 1],
-            cluster_points[:, 2],
-            c=[centroids_plot[k]],
-            s=5,
-            alpha=0.6
-        )
+    n_samples = X_plot.shape[0]
+    
+    # Subsampling se necessário
+    if n_samples > max_points:
+        sample_indices = np.random.choice(n_samples, max_points, replace=False)
+        X_sampled = X_plot[sample_indices]
+        idx_sampled = idx[sample_indices]
+        print(f"   ⚡ Subsampling: {n_samples:,} → {max_points:,} pontos")
+    else:
+        X_sampled = X_plot
+        idx_sampled = idx
+    
+    # Plotar todos os pontos de uma vez (muito mais rápido)
+    colors = centroids_plot[idx_sampled]
+    ax.scatter(
+        X_sampled[:, 0],
+        X_sampled[:, 1],
+        X_sampled[:, 2],
+        c=colors,
+        s=3,
+        alpha=0.5
+    )
+    
+    # Plotar centróides com destaque
+    ax.scatter(
+        centroids_plot[:, 0],
+        centroids_plot[:, 1],
+        centroids_plot[:, 2],
+        c=centroids_plot,
+        s=200,
+        marker='*',
+        edgecolors='black',
+        linewidths=2,
+        alpha=1.0,
+        label='Centróides'
+    )
     
     ax.set_xlabel('Red')
     ax.set_ylabel('Green')
     ax.set_zlabel('Blue')
-    ax.set_title('K-Means no espaço RGB', fontsize=12)
+    ax.set_title(f'K-Means no espaço RGB (K={K})', fontsize=12)
+    ax.legend()
     plt.tight_layout()
     plt.show()
 
@@ -236,7 +260,7 @@ def plot_zoom_comparison(original_img, compressed_img, K,
 
 def plot_single_result(result, show_comparison=True, show_rgb=False,
                        show_palette=False, show_analysis=False,
-                       show_zoom=False, zoom_size=200):
+                       show_zoom=False, zoom_size=200, max_points=10000):
     """
     Plota visualizações para um único resultado.
     
@@ -248,6 +272,7 @@ def plot_single_result(result, show_comparison=True, show_rgb=False,
         show_analysis: Mostrar análise de compressão
         show_zoom: Mostrar zoom comparativo
         zoom_size: Tamanho da região de zoom
+        max_points: Número máximo de pontos para plot RGB 3D
     """
     K = result['K']
     print(f"\n{'='*70}")
@@ -264,7 +289,8 @@ def plot_single_result(result, show_comparison=True, show_rgb=False,
             result['X'],
             result['centroids'],
             result['idx'],
-            K
+            K,
+            max_points=max_points
         )
     
     # 3. Paleta de cores
@@ -346,22 +372,91 @@ def plot_all_comparisons(results):
         plot_comparison_sidebyside(result)
 
 
-def plot_all_rgb(results):
+def plot_all_rgb(results, max_points=10000):
     """
-    Plota visualizações RGB 3D para todos os resultados.
+    Plota visualizações RGB 3D para todos os resultados em subplots (otimizado).
     
     Args:
         results: Lista de resultados
+        max_points: Número máximo de pontos por plot
     """
-    for result in results:
+    n_results = len(results)
+    
+    if n_results == 0:
+        print("⚠️  Nenhum resultado para plotar")
+        return
+    
+    # Calcular layout de subplots
+    n_cols = min(3, n_results)
+    n_rows = (n_results + n_cols - 1) // n_cols
+    
+    fig = plt.figure(figsize=(8 * n_cols, 6 * n_rows))
+    
+    print(f"\n{'='*60}")
+    print(f"PLOTANDO {n_results} GRÁFICOS RGB 3D")
+    print(f"{'='*60}")
+    
+    for i, result in enumerate(results, 1):
         K = result['K']
-        print(f"\n--- RGB 3D para K={K} ---")
-        plot_kmeans_rgb(
-            result['X'],
-            result['centroids'],
-            result['idx'],
-            K
+        X = result['X']
+        centroids = result['centroids']
+        idx = result['idx']
+        
+        print(f"\n[{i}/{n_results}] Processando K={K}...")
+        
+        ax = fig.add_subplot(n_rows, n_cols, i, projection='3d')
+        
+        # Normalizar para [0,1]
+        X_plot = X / 255.0 if X.max() > 1.0 else X
+        centroids_plot = centroids / 255.0 if centroids.max() > 1.0 else centroids
+        
+        n_samples = X_plot.shape[0]
+        
+        # Subsampling se necessário
+        if n_samples > max_points:
+            sample_indices = np.random.choice(n_samples, max_points, replace=False)
+            X_sampled = X_plot[sample_indices]
+            idx_sampled = idx[sample_indices]
+            print(f"   ⚡ Subsampling: {n_samples:,} → {max_points:,} pontos")
+        else:
+            X_sampled = X_plot
+            idx_sampled = idx
+        
+        # Plotar todos os pontos de uma vez
+        colors = centroids_plot[idx_sampled]
+        ax.scatter(
+            X_sampled[:, 0],
+            X_sampled[:, 1],
+            X_sampled[:, 2],
+            c=colors,
+            s=2,
+            alpha=0.4
         )
+        
+        # Plotar centróides
+        ax.scatter(
+            centroids_plot[:, 0],
+            centroids_plot[:, 1],
+            centroids_plot[:, 2],
+            c=centroids_plot,
+            s=150,
+            marker='*',
+            edgecolors='black',
+            linewidths=1.5,
+            alpha=1.0
+        )
+        
+        ax.set_xlabel('Red', fontsize=8)
+        ax.set_ylabel('Green', fontsize=8)
+        ax.set_zlabel('Blue', fontsize=8)
+        ax.set_title(f'K={K}', fontsize=11, fontweight='bold')
+        ax.tick_params(labelsize=7)
+    
+    plt.suptitle('K-Means no Espaço RGB', fontsize=16, fontweight='bold', y=0.98)
+    plt.tight_layout()
+    plt.show()
+    
+    print(f"\n✅ Concluído!\n")
 
 
 def plot_all_palettes(results):
