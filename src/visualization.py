@@ -17,49 +17,6 @@ def to_float(img):
     return img.astype(np.float32)
 
 
-def plot_kmeans_rgb(X, centroids, idx, K, max_points=10000):
-    """
-    Plota K-Means no espaço RGB 3D com subsampling.
-    
-    Args:
-        X: Dados (n_samples, 3)
-        centroids: Centróides (K, 3)
-        idx: Índices dos clusters (n_samples,)
-        K: Número de clusters
-        max_points: Máximo de pontos a plotar
-    """
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-    
-    X_plot = normalize_colors(X)
-    centroids_plot = normalize_colors(centroids)
-    
-    n_samples = X_plot.shape[0]
-    
-    if n_samples > max_points:
-        indices = np.random.choice(n_samples, max_points, replace=False)
-        X_plot = X_plot[indices]
-        idx = idx[indices]
-        print(f"   ⚡ {n_samples:,} → {max_points:,} pontos")
-    
-    colors = centroids_plot[idx]
-    ax.scatter(X_plot[:, 0], X_plot[:, 1], X_plot[:, 2],
-               c=colors, s=3, alpha=0.5)
-    
-    ax.scatter(centroids_plot[:, 0], centroids_plot[:, 1],
-               centroids_plot[:, 2], c=centroids_plot, s=200,
-               marker='*', edgecolors='black', linewidths=2,
-               alpha=1.0, label='Centróides')
-    
-    ax.set_xlabel('Red')
-    ax.set_ylabel('Green')
-    ax.set_zlabel('Blue')
-    ax.set_title(f'K-Means no espaço RGB (K={K})', fontsize=12)
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
-
-
 def show_palette(centroids):
     """
     Mostra paleta de cores dos centróides.
@@ -215,20 +172,17 @@ def plot_comparison(result):
     plt.show()
 
 
-def plot_result(result, show_comparison=True, show_rgb=False,
-                show_palette=False, show_zoom=False, zoom_size=200,
-                max_points=10000):
+def plot_result(result, show_comparison=True, show_colors=False,
+                show_zoom=False, zoom_size=200):
     """
     Plota visualizações para um resultado.
     
     Args:
         result: Dict de resultado do compress_image
         show_comparison: Comparação lado-a-lado
-        show_rgb: Plot 3D RGB
-        show_palette: Paleta de cores
+        show_colors: Paleta de cores
         show_zoom: Zoom comparativo
         zoom_size: Tamanho do zoom
-        max_points: Máximo de pontos para RGB 3D
     """
     K = result['K']
     print(f"\n{'='*70}")
@@ -238,12 +192,7 @@ def plot_result(result, show_comparison=True, show_rgb=False,
     if show_comparison:
         plot_comparison(result)
     
-    if show_rgb:
-        X = result['compressed_img'].reshape(-1, 3)
-        plot_kmeans_rgb(X, result['centroids'], result['idx'],
-                        K, max_points)
-    
-    if show_palette:
+    if show_colors:
         show_palette(result['centroids'])
     
     if show_zoom:

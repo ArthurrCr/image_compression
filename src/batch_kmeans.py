@@ -4,17 +4,7 @@ import gc
 import time
 import numpy as np
 
-from .kmeans import kmeans_init_centroids, run_kmeans
-
-
-def clear_gpu_memory():
-    """Limpa memória da GPU."""
-    try:
-        import cupy as cp
-        cp.get_default_memory_pool().free_all_blocks()
-        gc.collect()
-    except ImportError:
-        pass
+from .kmeans import kmeans_init_centroids, run_kmeans, clear_gpu_memory
 
 
 def get_optimal_dtype(K):
