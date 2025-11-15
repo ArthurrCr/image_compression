@@ -176,6 +176,12 @@ def compress_image(img, K, max_iters=10, seed=0, n_init=1,
                    use_gpu=True, batch_size=200000):
     """
     Comprime imagem usando K-Means.
+
+    Obs:
+      - 'tamanho_original_MB' e 'tamanho_comprimido_MB' aqui são da
+        REPRESENTAÇÃO EM MEMÓRIA (RGB cru vs paleta+índice).
+      - Tamanhos REAIS de arquivo (PNG) você obtém com
+        compute_png_size_rgb_mb / compute_png_size_palette_mb.
     
     Args:
         img: Imagem RGB (H, W, 3)
@@ -224,7 +230,7 @@ def compress_image(img, K, max_iters=10, seed=0, n_init=1,
     # Métricas
     _, mse, psnr = compute_quality_metrics(X, centroids, idx)
     
-    # Reconstruir
+    # Reconstruir (imagem RGB para visualização)
     compressed_img = reconstruct_image(centroids, idx, img.shape,
                                        original_dtype)
     
@@ -232,7 +238,7 @@ def compress_image(img, K, max_iters=10, seed=0, n_init=1,
     unique_orig = count_unique_colors(img)
     unique_comp = count_unique_colors(compressed_img)
     
-    # Tamanhos teóricos (representação crua RGB vs índice+paleta)
+    # Tamanhos TEÓRICOS (representação crua RGB vs índice+paleta)
     orig_mb = (H * W * 3) / (1024 * 1024)
     idx_dtype = get_optimal_dtype(K)
     comp_bytes = K * 3 * 4 + idx.size * np.dtype(idx_dtype).itemsize
@@ -256,8 +262,8 @@ def compress_image(img, K, max_iters=10, seed=0, n_init=1,
         'PSNR_dB': psnr,
         'cores_originais': unique_orig,
         'cores_comprimidas': unique_comp,
-        'tamanho_original_MB': orig_mb,
-        'tamanho_comprimido_MB': comp_mb,
+        'tamanho_original_MB': orig_mb,       # memória RGB crua
+        'tamanho_comprimido_MB': comp_mb,     # memória paleta+índice
         'fator_compactacao': ratio,
         'idx_dtype': str(idx_dtype.__name__),
     }
