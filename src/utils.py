@@ -1,9 +1,8 @@
-"""Pipeline K-Means para compressão de imagens - processamento simples."""
-
 import gc
 import time
 import numpy as np
-
+from PIL import Image
+import io
 from .kmeans import kmeans_init_centroids, run_kmeans, clear_gpu_memory
 
 
@@ -86,6 +85,93 @@ def run_kmeans_single(X, K, max_iters=10, seed=0, n_init=1,
     return best_centroids, best_idx, best_sse
 
 
+def make_palette_image(result):
+    """
+    Constrói uma imagem indexada (modo 'P') a partir do resultado do compress_image.
+    
+    Usa:
+        - result['centroids']: paleta Kx3 em [0,1]
+        - result['idx']: índices (H*W,)
+        - result['compressed_img']: para recuperar H e W
+    
+    Retorna:
+        imgP: PIL.Image em modo 'P' (paleta), pronta para salvar como PNG-8.
+    """
+    K = result['K']
+    if K > 256:
+        raise ValueError(
+            f"PNG com paleta suporta no máximo 256 cores, mas K={K}."
+        )
+    
+    centroids = result['centroids']       # (K, 3) em [0,1]
+    idx = result['idx']                   # (H*W,)
+    comp = result['compressed_img']       # (H, W, 3) – só para shape
+    H, W = comp.shape[:2]
+    
+    # Índices em formato 2D e 8 bits por pixel
+    idx_2d = idx.reshape(H, W).astype(np.uint8)
+    
+    # Paleta em uint8 [0,255]
+    palette = np.clip(np.rint(centroids * 255.0), 0, 255).astype(np.uint8)
+    
+    # PIL espera lista flat com exatamente 256*3 valores (R,G,B de cada cor)
+    pal_list = palette.reshape(-1).tolist()
+    pal_list += [0] * (256 * 3 - len(pal_list))  # completa até 256 cores
+    
+    # Cria imagem em modo 'P' (paleta) usando os índices
+    imgP = Image.fromarray(idx_2d, mode="P")
+    imgP.putpalette(pal_list)
+    return imgP
+
+
+def compute_png_size_rgb_mb(img, optimize=False):
+    """
+    Codifica uma imagem RGB como PNG em memória e retorna o tamanho em MB.
+
+    Usa sempre PNG truecolor (24 bits). Não salva em disco.
+
+    Args:
+        img: numpy array (H, W, 3), idealmente uint8.
+        optimize: se True, ativa optimize=True no encoder PNG
+                  (use o MESMO valor para original e quantizada se quiser
+                  uma comparação justa).
+    """
+    if img.dtype != np.uint8:
+        img_u8 = np.clip(np.rint(img), 0, 255).astype(np.uint8)
+    else:
+        img_u8 = img
+
+    pil_img = Image.fromarray(img_u8, mode="RGB")
+    buf = io.BytesIO()
+    if optimize:
+        pil_img.save(buf, format="PNG", optimize=True)
+    else:
+        pil_img.save(buf, format="PNG")
+    size_bytes = len(buf.getvalue())
+    buf.close()
+    return size_bytes / (1024 * 1024)
+
+
+def compute_png_size_palette_mb(result, optimize=False):
+    """
+    Codifica em memória o PNG-8 (paleta) gerado a partir do resultado do K-Means
+    e retorna o tamanho em MB.
+
+    Args:
+        result: dict retornado por compress_image(...)
+        optimize: mesmo significado da função RGB.
+    """
+    imgP = make_palette_image(result)
+    buf = io.BytesIO()
+    if optimize:
+        imgP.save(buf, format="PNG", optimize=True)
+    else:
+        imgP.save(buf, format="PNG")
+    size_bytes = len(buf.getvalue())
+    buf.close()
+    return size_bytes / (1024 * 1024)
+
+
 def compress_image(img, K, max_iters=10, seed=0, n_init=1,
                    use_gpu=True, batch_size=200000):
     """
@@ -146,7 +232,7 @@ def compress_image(img, K, max_iters=10, seed=0, n_init=1,
     unique_orig = count_unique_colors(img)
     unique_comp = count_unique_colors(compressed_img)
     
-    # Tamanhos
+    # Tamanhos teóricos (representação crua RGB vs índice+paleta)
     orig_mb = (H * W * 3) / (1024 * 1024)
     idx_dtype = get_optimal_dtype(K)
     comp_bytes = K * 3 * 4 + idx.size * np.dtype(idx_dtype).itemsize
@@ -173,5 +259,5 @@ def compress_image(img, K, max_iters=10, seed=0, n_init=1,
         'tamanho_original_MB': orig_mb,
         'tamanho_comprimido_MB': comp_mb,
         'fator_compactacao': ratio,
-        'idx_dtype': str(idx_dtype.__name__)
+        'idx_dtype': str(idx_dtype.__name__),
     }
