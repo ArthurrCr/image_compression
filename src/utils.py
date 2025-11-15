@@ -1,8 +1,10 @@
 import gc
 import time
 import numpy as np
-from PIL import Image
+import os
+import imageio.v2 as imageio
 import io
+from PIL import Image
 from .kmeans import kmeans_init_centroids, run_kmeans, clear_gpu_memory
 
 
@@ -172,6 +174,7 @@ def compute_png_size_palette_mb(result, optimize=False):
     return size_bytes / (1024 * 1024)
 
 
+
 def compress_image(img, K, max_iters=10, seed=0, n_init=1,
                    use_gpu=True, batch_size=200000):
     """
@@ -267,3 +270,44 @@ def compress_image(img, K, max_iters=10, seed=0, n_init=1,
         'fator_compactacao': ratio,
         'idx_dtype': str(idx_dtype.__name__),
     }
+
+
+
+def run_full_experiment(image_path, K, max_iters=10, seed=0,
+                        n_init=1, use_gpu=True, batch_size=200000):
+    """
+    Carrega a imagem do disco, roda o K-Means e monta o dict de resultado
+    já com:
+      - original_img
+      - jpeg_size_mb (tamanho real do arquivo original)
+    
+    Args:
+        image_path: caminho do arquivo de imagem (ex: JPEG da câmera)
+        K, max_iters, seed, n_init, use_gpu, batch_size: mesmos do compress_image
+
+    Returns:
+        result: dict compatível com plot_result / plot_comparison
+    """
+    # 1) Carrega a imagem (como array RGB)
+    original_img = imageio.imread(image_path)
+
+    # 2) Roda o K-Means usando sua compress_image
+    result = compress_image(
+        original_img,
+        K=K,
+        max_iters=max_iters,
+        seed=seed,
+        n_init=n_init,
+        use_gpu=use_gpu,
+        batch_size=batch_size,
+    )
+
+    # 3) Tamanho real do arquivo original em disco
+    file_size_bytes = os.path.getsize(image_path)
+    jpeg_size_mb = file_size_bytes / (1024 * 1024)
+
+    # 4) Anexa informações extras pro pipeline de visualização
+    result["original_img"] = original_img
+    result["jpeg_size_mb"] = jpeg_size_mb
+
+    return result
