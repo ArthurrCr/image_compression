@@ -4,7 +4,7 @@ import gc
 import time
 import numpy as np
 
-from src.clustering.kmeans import kmeans_init_centroids, run_kmeans
+from kmeans import kmeans_init_centroids, run_kmeans
 
 
 def clear_gpu_memory():
