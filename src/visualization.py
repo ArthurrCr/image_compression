@@ -7,8 +7,7 @@ from matplotlib.patches import Rectangle
 # importa funções que medem o tamanho REAL dos PNGs em memória (equivalente ao arquivo)
 from .utils import (
     compute_png_size_rgb_mb,
-    compute_png_size_palette_mb,
-    compress_image,
+    compute_png_size_palette_mb
 )
 
 
@@ -41,9 +40,9 @@ def show_palette(centroids):
     for i, ax in enumerate(axes):
         ax.imshow([[colors[i]]])
         ax.axis('off')
-        ax.set_title(f'Cor {i}', fontsize=10)
+        ax.set_title(f'Cor {i}', fontsize=12)
 
-    plt.suptitle("Paleta de Cores", fontsize=12, y=0.85)
+    plt.suptitle("Paleta de Cores", fontsize=14, y=0.85)
     plt.tight_layout()
     plt.show()
 
@@ -63,7 +62,7 @@ def plot_zoom(original, compressed, K, zoom_size=200, seed=None):
     zh, zw = min(zoom_size, H), min(zoom_size, W)
 
     if zh <= 0 or zw <= 0 or H <= zh or W <= zw:
-        print("⚠️  Imagem muito pequena para zoom")
+        print("⚠️ Imagem muito pequena para zoom")
         return
 
     if seed is not None:
@@ -75,13 +74,7 @@ def plot_zoom(original, compressed, K, zoom_size=200, seed=None):
     zoom_orig = original[y:y+zh, x:x+zw]
     zoom_comp = compressed[y:y+zh, x:x+zw]
 
-    # Métricas
-    orig_f = to_float(zoom_orig)
-    comp_f = to_float(zoom_comp)
-
-    mse = np.mean((orig_f - comp_f) ** 2)
-    psnr = -10.0 * np.log10(mse) if mse > 0 else float('inf')
-
+    # Métricas de cores
     colors_o = len(np.unique(zoom_orig.reshape(-1, 3), axis=0))
     colors_c = len(np.unique(zoom_comp.reshape(-1, 3), axis=0))
 
@@ -105,12 +98,12 @@ def plot_zoom(original, compressed, K, zoom_size=200, seed=None):
 
     ax3 = plt.subplot(2, 2, 3)
     ax3.imshow(zoom_orig)
-    ax3.set_title('Zoom Original', fontsize=12, fontweight='bold')
+    ax3.set_title('Zoom Original', fontsize=14, fontweight='bold')
     ax3.axis('off')
 
     ax4 = plt.subplot(2, 2, 4)
     ax4.imshow(zoom_comp)
-    ax4.set_title('Zoom Comprimida', fontsize=12, fontweight='bold')
+    ax4.set_title('Zoom Comprimida', fontsize=14, fontweight='bold')
     ax4.axis('off')
 
     if zoom_size <= 50:
@@ -120,20 +113,15 @@ def plot_zoom(original, compressed, K, zoom_size=200, seed=None):
             ax.grid(which='minor', color='gray', linestyle='-',
                     linewidth=0.5, alpha=0.3)
 
-    reduction = (1 - colors_c / colors_o) * 100 if colors_o > 0 else 0
     plt.suptitle(
-        f'Zoom - K={K}\n'
-        f'PSNR={psnr:.2f} dB | Cores: {colors_o} → {colors_c} '
-        f'({reduction:.1f}% redução)',
+        f'Zoom - K={K}\nCores: {colors_o} → {colors_c}',
         fontsize=16, fontweight='bold', y=0.98
     )
 
     plt.tight_layout()
     plt.show()
 
-    print(f"\n🔍 ZOOM: ({x}, {y}) - {zw}×{zh}px | "
-          f"PSNR: {psnr:.2f} dB | "
-          f"Cores: {colors_o} → {colors_c}\n")
+    print(f"\n🔍 ZOOM: ({x}, {y}) - {zw}×{zh}px | Cores: {colors_o} → {colors_c}\n")
 
 
 def plot_comparison(result):
@@ -152,7 +140,7 @@ def plot_comparison(result):
             - 'original_img': imagem original (RGB)
             - 'compressed_img': imagem quantizada (RGB)
             - 'cores_originais', 'cores_comprimidas'
-            - 'K', 'PSNR_dB'
+            - 'K'
             - opcional: 'jpeg_size_mb' (tamanho do .jpg em MB)
             - opcional: 'tamanho_original_MB' (RGB cru, H*W*3)
             - opcional: 'tamanho_comprimido_MB' (paleta+idx teórico)
@@ -163,7 +151,6 @@ def plot_comparison(result):
 
     colors_o = result['cores_originais']
     colors_c = result['cores_comprimidas']
-    psnr = result['PSNR_dB']
 
     # Tamanho do JPEG (se fornecido)
     jpeg_mb = result.get('jpeg_size_mb', None)
@@ -175,13 +162,6 @@ def plot_comparison(result):
     # Tamanhos em memória (representações internas)
     mem_rgb_mb = result.get('tamanho_original_MB', None)      # RGB cru
     mem_pal_mb = result.get('tamanho_comprimido_MB', None)    # paleta+idx
-
-    ratio_png = png_rgb_mb / png_pal_mb if png_pal_mb > 0 else np.inf
-    red_png = (1 - png_pal_mb / png_rgb_mb) * 100 if png_rgb_mb > 0 else 0.0
-
-    ratio_jpeg = None
-    if jpeg_mb is not None and png_pal_mb > 0:
-        ratio_jpeg = jpeg_mb / png_pal_mb
 
     # helpers de string
     def fmt_mem_rgb():
@@ -207,7 +187,7 @@ def plot_comparison(result):
             f'Disco: (não informado) | Memória RGB: {fmt_mem_rgb()}\n'
             f'{colors_o:,} cores'
         )
-    ax[0].set_title(title_jpeg, fontsize=12)
+    ax[0].set_title(title_jpeg, fontsize=13)
     ax[0].axis('off')
 
     # 2) PNG RGB (sem quantização de cor)
@@ -217,7 +197,7 @@ def plot_comparison(result):
         f'{colors_o:,} cores'
     )
     ax[1].imshow(orig)
-    ax[1].set_title(title_png_rgb, fontsize=12)
+    ax[1].set_title(title_png_rgb, fontsize=13)
     ax[1].axis('off')
 
     # 3) PNG paleta (K-Means)
@@ -227,18 +207,11 @@ def plot_comparison(result):
         f'{colors_c:,} cores'
     )
     ax[2].imshow(comp)
-    ax[2].set_title(title_png_pal, fontsize=12)
+    ax[2].set_title(title_png_pal, fontsize=13)
     ax[2].axis('off')
 
-    # Supertítulo com redução em relação ao PNG RGB (arquivo)
-    sup = (
-        f'PNG paleta vs PNG RGB (arquivo): {ratio_png:.2f}x menor '
-        f'({red_png:.1f}% redução) | PSNR: {psnr:.1f} dB'
-    )
-    if ratio_jpeg is not None:
-        sup += f'\nPNG paleta vs JPEG (arquivo): {ratio_jpeg:.2f}x menor'
-
-    plt.suptitle(sup, fontsize=16, y=0.97)
+    # Supertítulo
+    plt.suptitle('Comparação de Formatos', fontsize=16, y=0.97)
 
     plt.tight_layout()
     plt.show()
@@ -250,10 +223,6 @@ def plot_comparison(result):
         print("   JPEG original        : (tamanho não informado)")
     print(f"   PNG RGB (sem K-Means): {png_rgb_mb:.3f} MB")
     print(f"   PNG paleta (K={K})   : {png_pal_mb:.3f} MB")
-    print(f"   Fator PNG RGB  → PNG paleta : {ratio_png:.2f}x "
-          f"({red_png:.1f}% redução)")
-    if ratio_jpeg is not None:
-        print(f"   Fator JPEG     → PNG paleta : {ratio_jpeg:.2f}x")
 
     print("\n🧠 Tamanhos em MEMÓRIA (representação interna):")
     if mem_rgb_mb is not None:
